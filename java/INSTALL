@@ -1,7 +1,7 @@
 Starting with release 1.2, OpenDDS provides Java bindings.  Java applications
 can make use of the complete OpenDDS middleware just like C++ applications.
 
-See the README file in the $DDS_ROOT directory (one level above here) for a
+See the README.md file in the $DDS_ROOT directory (one level above here) for a
 general overview of OpenDDS.
 
 
@@ -16,7 +16,7 @@ general overview of OpenDDS.
     experimental support for the 32-bit and 64-bit variants of the JDK provided
     by Apple on Mac OS X.  If you are using a 64-bit JDK, make sure all the
     native libraries are also built for 64-bit.  Similarly, a 32-bit JDK must
-    be matched with 32-bit native libs.
+    be matched with 32-bit native libraries.
 
   - C++ Compiler
 
@@ -54,11 +54,11 @@ general overview of OpenDDS.
     certainly be installed by default on Linux (if not use your
     platform's package management system).  On Solaris be sure that you are
     using GNU make, which may be invoked as "gmake".
-    
-    On OS X El Capitan, Yosemite, Mavericks onward, the required build tools 
+
+    On OS X El Capitan, Yosemite, Mavericks onward, the required build tools
     can be installed by typing the following command from termial.
-       
-       xcode-select --install 
+
+       xcode-select --install
 
   - Perl v5.8 or later
 
@@ -72,7 +72,6 @@ general overview of OpenDDS.
 
     OpenDDS requires the use of TAO.  Three "branches" of TAO are supported:
 
-    - OCI TAO 2.0a <http://download.ociweb.com/TAO-2.0a>
     - OCI TAO 2.2a <http://download.ociweb.com/TAO-2.2a>
     - DOC Group    <http://download.dre.vanderbilt.edu>
 
@@ -82,7 +81,7 @@ general overview of OpenDDS.
     From each branch only the current patch release (OCI) or beta/micro release
     (DOC) is supported.  The "current" releases are the latest public releases
     of TAO at the time of the OpenDDS release.  These are listed in the "TAO"
-    section of the OpenDDS README file (in the parent directory).
+    section of the OpenDDS README.md file (in the parent directory).
 
     For responsive support from OCI it is recommended that the latest version
     of the OCI release of TAO used for OpenDDS development and testing be used.
@@ -108,19 +107,19 @@ general overview of OpenDDS.
      use paths with no spaces (true on Unix too but spaces are rarely seen).
      The top level of the OpenDDS distribution is a directory that contains
      the subdirectory named dds.
-     
-  3. Configure and build OpenDDS 
+
+  3. Configure and build OpenDDS
 
      Build as in $DDS_ROOT/install, but add --java option
 
      Unix    => cd $DDS_ROOT
                 ./configure --java
-                make       
+                make
      Windows => cd $DDS_ROOT
                 configure --java
                 Start Visual Studio by executing the generated solution from the command prompt
                 Select Build -> Build Solution
-       
+
 
   4. Run a test Java application to verify the build
 
@@ -135,5 +134,5 @@ general overview of OpenDDS.
 ======================================================================
 * Next Steps: Developing Java applications with OpenDDS
 
-  See the README file in this directory.
+  See the README.md file in this directory.
 

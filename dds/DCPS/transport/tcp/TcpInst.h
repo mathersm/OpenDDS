@@ -104,19 +104,19 @@ public:
   }
   void local_address_set_port(u_short port_number) {
     local_address_.set_port_number(port_number);
-    size_t pos = local_address_str_.find_last_of(":");
-    OPENDDS_STRING host_name = local_address_str_.substr(0, pos);
-    local_address_str_ = host_name + ":" + to_dds_string(port_number);
+    set_port_in_addr_string(local_address_str_, port_number);
   }
 
 private:
   friend class TcpType;
   friend class TcpTransport;
   friend class ::DDS_TEST;
+  template <typename T, typename U>
+  friend RcHandle<T> OpenDDS::DCPS::make_rch(U const&);
   explicit TcpInst(const OPENDDS_STRING& name);
   virtual ~TcpInst();
 
-  TcpTransport* new_impl(const TransportInst_rch& inst);
+  TransportImpl_rch new_impl(const TransportInst_rch& inst);
 
   /// Describes the local endpoint to be used to accept
   /// passive connections.

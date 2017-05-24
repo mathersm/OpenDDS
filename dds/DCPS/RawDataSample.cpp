@@ -58,8 +58,16 @@ RawDataSample&
 RawDataSample::operator=(const RawDataSample& other)
 {
   RawDataSample tmp(other);
-  std::swap(*this, tmp);
+  swap(*this, tmp);
   return *this;
+}
+
+void swap(RawDataSample& lhs, RawDataSample& rhs)
+{
+  std::swap(lhs.message_id_, rhs.message_id_);
+  std::swap(lhs.publication_id_, rhs.publication_id_);
+  std::swap(lhs.sample_byte_order_, rhs.sample_byte_order_);
+  std::swap(lhs.sample_, rhs.sample_);
 }
 
 } // namespace DCPS

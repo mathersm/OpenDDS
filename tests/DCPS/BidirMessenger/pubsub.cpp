@@ -135,7 +135,7 @@ int ACE_TMAIN(int argc, ACE_TCHAR *argv[])
       s << "Movie Discussion List " << i << std::ends;
 
       topic[i] = participant->create_topic(s.str().c_str(),
-                                           mts->get_type_name(),
+                                           CORBA::String_var(mts->get_type_name()),
                                            TOPIC_QOS_DEFAULT,
                                            DDS::TopicListener::_nil(),
                                            OpenDDS::DCPS::DEFAULT_STATUS_MASK);
@@ -266,6 +266,12 @@ int ACE_TMAIN(int argc, ACE_TCHAR *argv[])
       for (int i = 0; i < num_topics; ++i) {
         DataReaderListenerImpl* listener_impl =
           dynamic_cast<DataReaderListenerImpl*>(listener[i].in());
+
+        if (!listener_impl) {
+          ACE_ERROR_RETURN((LM_ERROR,
+            ACE_TEXT("%N:%l main()")
+            ACE_TEXT(" ERROR: listener_impl is nil (dynamic_cast failed)!\n")), -1);
+        }
 
         while (listener_impl->num_reads() != expected_num_reads) {
           ACE_Time_Value small_time(0, 1000000);

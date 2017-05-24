@@ -24,6 +24,13 @@ namespace DCPS {
 
 RtpsUdpInst::RtpsUdpInst(const OPENDDS_STRING& name)
   : TransportInst("rtps_udp", name)
+#if defined (ACE_DEFAULT_MAX_SOCKET_BUFSIZ)
+  , send_buffer_size_(ACE_DEFAULT_MAX_SOCKET_BUFSIZ)
+  , rcv_buffer_size_(ACE_DEFAULT_MAX_SOCKET_BUFSIZ)
+#else
+  , send_buffer_size_(0)
+  , rcv_buffer_size_(0)
+#endif
   , use_multicast_(true)
   , ttl_(1)
   , multicast_group_address_(7401, "239.255.0.2")
@@ -33,15 +40,14 @@ RtpsUdpInst::RtpsUdpInst(const OPENDDS_STRING& name)
   , heartbeat_response_delay_(0, 500*1000 /*microseconds*/) // default from RTPS
   , handshake_timeout_(30) // default syn_timeout in OpenDDS_Multicast
   , durable_data_timeout_(60)
-  , opendds_discovery_default_listener_(0)
   , opendds_discovery_guid_(GUID_UNKNOWN)
 {
 }
 
-TransportImpl*
+TransportImpl_rch
 RtpsUdpInst::new_impl(const TransportInst_rch& inst)
 {
-  return new RtpsUdpTransport(inst);
+  return make_rch<RtpsUdpTransport>(inst);
 }
 
 int
@@ -56,6 +62,11 @@ RtpsUdpInst::load(ACE_Configuration_Heap& cf,
   if (!local_address_s.is_empty()) {
     local_address(ACE_TEXT_ALWAYS_CHAR(local_address_s.c_str()));
   }
+
+  GET_CONFIG_VALUE(cf, sect, ACE_TEXT("send_buffer_size"), this->send_buffer_size_, ACE_UINT32);
+
+  GET_CONFIG_VALUE(cf, sect, ACE_TEXT("rcv_buffer_size"), this->rcv_buffer_size_, ACE_UINT32);
+
 
   GET_CONFIG_VALUE(cf, sect, ACE_TEXT("use_multicast"), use_multicast_, bool);
 

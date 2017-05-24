@@ -115,8 +115,6 @@ DataWriterImpl::DataWriterImpl()
     TheServiceParticipant->monitor_factory_->create_data_writer_periodic_monitor(this);
 
   db_lock_pool_ = new DataBlockLockPool((unsigned long)n_chunks_);
-
-  ACE_Event_Handler::reference_counting_policy().value(ACE_Event_Handler::Reference_Counting_Policy::ENABLED);
 }
 
 // This method is called when there are no longer any reference to the
@@ -271,7 +269,7 @@ DataWriterImpl::add_association(const RepoId& yourId,
   if (!associate(data, active)) {
     //FUTURE: inform inforepo and try again as passive peer
     if (DCPS_debug_level) {
-      ACE_DEBUG((LM_ERROR,
+      ACE_ERROR((LM_ERROR,
                  ACE_TEXT("(%P|%t) DataWriterImpl::add_association: ")
                  ACE_TEXT("ERROR: transport layer failed to associate.\n")));
     }
@@ -286,7 +284,7 @@ DataWriterImpl::transport_assoc_done(int flags, const RepoId& remote_id)
   if (!(flags & ASSOC_OK)) {
     if (DCPS_debug_level) {
       const GuidConverter conv(remote_id);
-      ACE_DEBUG((LM_ERROR,
+      ACE_ERROR((LM_ERROR,
                  ACE_TEXT("(%P|%t) DataWriterImpl::transport_assoc_done: ")
                  ACE_TEXT("ERROR: transport layer failed to associate %C\n"),
                  OPENDDS_STRING(conv).c_str()));
@@ -346,7 +344,7 @@ DataWriterImpl::transport_assoc_done(int flags, const RepoId& remote_id)
     // code will not be applicable.
     if (DCPS_debug_level) {
       const GuidConverter conv(publication_id_);
-      ACE_DEBUG((LM_ERROR,
+      ACE_ERROR((LM_ERROR,
                  ACE_TEXT("(%P|%t) DataWriterImpl::transport_assoc_done: ")
                  ACE_TEXT("ERROR: DataWriter (%C) should always be active in current implementation\n"),
                  OPENDDS_STRING(conv).c_str()));
@@ -933,14 +931,13 @@ DataWriterImpl::set_qos(const DDS::DataWriterQos & qos)
           || qos_.deadline.period.nanosec != qos.deadline.period.nanosec) {
         if (qos_.deadline.period.sec == DDS::DURATION_INFINITE_SEC
             && qos_.deadline.period.nanosec == DDS::DURATION_INFINITE_NSEC) {
-          this->watchdog_.reset(
-                             new OfferedDeadlineWatchdog(
-                               this->lock_,
+          this->watchdog_= make_rch<OfferedDeadlineWatchdog>(
+                               ref(this->lock_),
                                qos.deadline,
                                this,
                                this->dw_local_objref_.in(),
-                               this->offered_deadline_missed_status_,
-                               this->last_deadline_missed_total_count_));
+                               ref(this->offered_deadline_missed_status_),
+                               ref(this->last_deadline_missed_total_count_));
 
         } else if (qos.deadline.period.sec == DDS::DURATION_INFINITE_SEC
                    && qos.deadline.period.nanosec == DDS::DURATION_INFINITE_NSEC) {
@@ -1013,11 +1010,62 @@ DataWriterImpl::create_ack_token(DDS::Duration_t max_wait) const
   return AckToken(max_wait, this->sequence_number_);
 }
 
+
+
+DDS::ReturnCode_t
+DataWriterImpl::send_request_ack()
+{
+  ACE_GUARD_RETURN(ACE_Recursive_Thread_Mutex,
+                   guard,
+                   get_lock(),
+                   DDS::RETCODE_ERROR);
+
+
+  DataSampleElement* element = 0;
+  DDS::ReturnCode_t ret = this->data_container_->obtain_buffer_for_control(element);
+
+  if (ret != DDS::RETCODE_OK) {
+    ACE_ERROR_RETURN((LM_ERROR,
+                      ACE_TEXT("(%P|%t) ERROR: ")
+                      ACE_TEXT("DataWriterImpl::send_request_ack: ")
+                      ACE_TEXT("obtain_buffer_for_control returned %d.\n"),
+                      ret),
+                     ret);
+  }
+
+  // Add header with the registration sample data.
+  element->set_sample(create_control_message(REQUEST_ACK,
+                                             element->get_header(),
+                                             0,
+                                             time_value_to_time( ACE_OS::gettimeofday() )));
+
+  ret = this->data_container_->enqueue_control(element);
+
+  if (ret != DDS::RETCODE_OK) {
+    ACE_ERROR_RETURN((LM_ERROR,
+                      ACE_TEXT("(%P|%t) ERROR: ")
+                      ACE_TEXT("DataWriterImpl::send_request_ack: ")
+                      ACE_TEXT("enqueue_control failed.\n")),
+                     ret);
+  }
+
+
+  send_all_to_flush_control(guard);
+
+  return DDS::RETCODE_OK;
+}
+
 DDS::ReturnCode_t
 DataWriterImpl::wait_for_acknowledgments(const DDS::Duration_t& max_wait)
 {
   if (this->qos_.reliability.kind != DDS::RELIABLE_RELIABILITY_QOS)
     return DDS::RETCODE_OK;
+
+  DDS::ReturnCode_t ret = send_request_ack();
+
+  if (ret != DDS::RETCODE_OK)
+    return ret;
+
   DataWriterImpl::AckToken token = create_ack_token(max_wait);
   if (DCPS_debug_level) {
     ACE_DEBUG ((LM_DEBUG, ACE_TEXT("(%P|%t) DataWriterImpl::wait_for_acknowledgments")
@@ -1271,11 +1319,12 @@ DataWriterImpl::enable()
   if (reliable && qos_.resource_limits.max_instances != DDS::LENGTH_UNLIMITED)
     max_instances = qos_.resource_limits.max_instances;
 
+  const CORBA::Long history_depth =
+    (qos_.history.kind == DDS::KEEP_ALL_HISTORY_QOS ||
+     qos_.history.depth == DDS::LENGTH_UNLIMITED) ? 0x7fffffff : qos_.history.depth;
+
   const CORBA::Long max_durable_per_instance =
-    qos_.durability.kind == DDS::VOLATILE_DURABILITY_QOS ? 0 :
-    qos_.history.kind == DDS::KEEP_ALL_HISTORY_QOS ? max_samples_per_instance :
-    qos_.history.depth == DDS::LENGTH_UNLIMITED ? 0x7fffffff :
-    qos_.history.depth;
+    qos_.durability.kind == DDS::VOLATILE_DURABILITY_QOS ? 0 : history_depth;
 
   // enable the type specific part of this DataWriter
   this->enable_specific();
@@ -1291,6 +1340,7 @@ DataWriterImpl::enable()
   // it is OK that we cannot change the size of our allocators.
   data_container_ = new WriteDataContainer(this,
                                            max_samples_per_instance,
+                                           history_depth,
                                            max_durable_per_instance,
                                            qos_.reliability.max_blocking_time,
                                            n_chunks_,
@@ -1360,13 +1410,13 @@ DataWriterImpl::enable()
 
   if (deadline_period.sec != DDS::DURATION_INFINITE_SEC
       || deadline_period.nanosec != DDS::DURATION_INFINITE_NSEC) {
-    this->watchdog_.reset( new OfferedDeadlineWatchdog(
-                         this->lock_,
-                         this->qos_.deadline,
-                         this,
-                         this->dw_local_objref_.in(),
-                         this->offered_deadline_missed_status_,
-                         this->last_deadline_missed_total_count_));
+    this->watchdog_ = make_rch<OfferedDeadlineWatchdog>(
+                           ref(this->lock_),
+                           this->qos_.deadline,
+                           this,
+                           this->dw_local_objref_.in(),
+                           ref(this->offered_deadline_missed_status_),
+                           ref(this->last_deadline_missed_total_count_));
   }
 
   Discovery_rch disco = TheServiceParticipant->get_discovery(this->domain_id_);
@@ -1960,7 +2010,8 @@ DataWriterImpl::create_control_message(MessageId message_id,
   if (message_id == INSTANCE_REGISTRATION
       || message_id == DISPOSE_INSTANCE
       || message_id == UNREGISTER_INSTANCE
-      || message_id == DISPOSE_UNREGISTER_INSTANCE) {
+      || message_id == DISPOSE_UNREGISTER_INSTANCE
+      || message_id == REQUEST_ACK) {
 
     header_data.sequence_repair_ = need_sequence_repair();
 
@@ -2026,7 +2077,7 @@ DataWriterImpl::create_sample_data_message(DataSample* data,
                                            const DDS::Time_t& source_timestamp,
                                            bool content_filter)
 {
-  PublicationInstance* const instance =
+  PublicationInstance_rch instance =
     data_container_->get_handle_instance(instance_handle);
 
   if (0 == instance) {
@@ -2398,16 +2449,15 @@ DataWriterImpl::prepare_to_delete()
   this->stop_associating();
 }
 
-PublicationInstance*
+PublicationInstance_rch
 DataWriterImpl::get_handle_instance(DDS::InstanceHandle_t handle)
 {
-  PublicationInstance* instance = 0;
 
   if (0 != data_container_) {
-    instance = data_container_->get_handle_instance(handle);
+    return data_container_->get_handle_instance(handle);
   }
 
-  return instance;
+  return PublicationInstance_rch();
 }
 
 void
@@ -2677,18 +2727,6 @@ DataWriterImpl::remove_reference()
 {
   CORBA::Object::_remove_ref();
   return 1;
-}
-
-void
-DataWriterImpl::listener_add_ref()
-{
-  CORBA::Object::_add_ref();
-}
-
-void
-DataWriterImpl::listener_remove_ref()
-{
-  CORBA::Object::_remove_ref();
 }
 
 

@@ -322,21 +322,15 @@ ReplayerImpl::enable()
   }
   // +1 because we might allocate one before releasing another
   // TBD - see if this +1 can be removed.
-  ACE_auto_ptr_reset(mb_allocator_,
-                     new MessageBlockAllocator(n_chunks_ * association_chunk_multiplier_));
-  ACE_auto_ptr_reset(db_allocator_,
-                     new DataBlockAllocator(n_chunks_+1));
-  ACE_auto_ptr_reset(header_allocator_,
-                     new DataSampleHeaderAllocator(n_chunks_+1));
+  mb_allocator_.reset(new MessageBlockAllocator(n_chunks_ * association_chunk_multiplier_));
+  db_allocator_.reset(new DataBlockAllocator(n_chunks_+1));
+  header_allocator_.reset(new DataSampleHeaderAllocator(n_chunks_+1));
 
-  ACE_auto_ptr_reset(sample_list_element_allocator_,
-                     new DataSampleElementAllocator(2 * n_chunks_));
+  sample_list_element_allocator_.reset(new DataSampleElementAllocator(2 * n_chunks_));
 
-  ACE_auto_ptr_reset(transport_send_element_allocator_,
-                     new TransportSendElementAllocator(2 * n_chunks_,
+  transport_send_element_allocator_.reset(new TransportSendElementAllocator(2 * n_chunks_,
                                                        sizeof(TransportSendElement)));
-  ACE_auto_ptr_reset(transport_customized_element_allocator_,
-                     new TransportCustomizedElementAllocator(2 * n_chunks_,
+  transport_customized_element_allocator_.reset(new TransportCustomizedElementAllocator(2 * n_chunks_,
                                                              sizeof(TransportCustomizedElement)));
 
   if (DCPS_debug_level >= 2) {
@@ -457,7 +451,7 @@ ReplayerImpl::add_association(const RepoId&            yourId,
   if (!this->associate(data, active)) {
     //FUTURE: inform inforepo and try again as passive peer
     if (DCPS_debug_level) {
-      ACE_DEBUG((LM_ERROR,
+      ACE_ERROR((LM_ERROR,
                  ACE_TEXT("(%P|%t) ReplayerImpl::add_association: ")
                  ACE_TEXT("ERROR: transport layer failed to associate.\n")));
     }
@@ -999,7 +993,7 @@ ReplayerImpl::write (const RawDataSample*   samples,
           sizeof(DataSampleElement))),
       DataSampleElement(publication_id_,
                             this,
-                            0,
+                            PublicationInstance_rch(),
                             transport_send_element_allocator_.get(),
                             transport_customized_element_allocator_.get()),
       DDS::RETCODE_ERROR);

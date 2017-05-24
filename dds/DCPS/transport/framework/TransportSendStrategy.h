@@ -47,8 +47,7 @@ class PacketRemoveVisitor;
  *    of samples in queue.
  */
 class OpenDDS_Dcps_Export TransportSendStrategy
-  : public RcObject<ACE_SYNCH_MUTEX>,
-    public ThreadSynchWorker {
+  : public ThreadSynchWorker {
 public:
   virtual ~TransportSendStrategy();
 
@@ -142,6 +141,7 @@ public:
   // this method and return the peer handle.
   virtual ACE_HANDLE get_handle();
 
+  void deliver_ack_request(TransportQueueElement* element);
 protected:
 
   TransportSendStrategy(std::size_t id,
@@ -186,6 +186,12 @@ protected:
   void set_graceful_disconnecting(bool flag);
 
   virtual void add_delayed_notification(TransportQueueElement* element);
+
+  /// If delayed notifications were queued up, issue those callbacks here.
+  /// The default match is "match all", otherwise match can be used to specify
+  /// either a certain individual packet or a publication id.
+  /// Returns true if anything in the delayed notification list matched.
+  bool send_delayed_notifications(const TransportQueueElement::MatchCriteria* match = 0);
 
 private:
 
@@ -243,11 +249,6 @@ private:
   /// the entire packet was not sent.
   int adjust_packet_after_send(ssize_t num_bytes_sent);
 
-  /// If delayed notifications were queued up, issue those callbacks here.
-  /// The default match is "match all", otherwise match can be used to specify
-  /// either a certain individual packet or a publication id.
-  /// Returns true if anything in the delayed notification list matched.
-  bool send_delayed_notifications(const TransportQueueElement::MatchCriteria* match = 0);
 
   /// How much space is available in the current packet before we reach one
   /// of the limits: max_message_size() [transport's inherent limitation]

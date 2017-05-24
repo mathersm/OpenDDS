@@ -61,7 +61,7 @@ int parse_args (int argc, ACE_TCHAR *argv[])
         -1);
     }
   }
-  // Indicates sucessful parsing of the command line
+  // Indicates successful parsing of the command line
   return 0;
 }
 
@@ -105,8 +105,6 @@ int ACE_TMAIN(int argc, ACE_TCHAR *argv[]) {
         exit(1);
       }
 
-      CORBA::String_var type_name = ts->get_type_name ();
-
       DDS::TopicQos topic_qos;
       participant->get_default_topic_qos(topic_qos);
 
@@ -117,7 +115,7 @@ int ACE_TMAIN(int argc, ACE_TCHAR *argv[]) {
 
       DDS::Topic_var topic =
         participant->create_topic ("Movie Discussion List",
-                                   type_name.in (),
+                                   "Messenger",
                                    topic_qos,
                                    DDS::TopicListener::_nil(),
                                    ::OpenDDS::DCPS::DEFAULT_STATUS_MASK);

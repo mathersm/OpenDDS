@@ -152,6 +152,7 @@ Service_Participant::Service_Participant()
     ORB_argv_(false /*substitute_env_args*/),
 #endif
     reactor_(0),
+    reactor_owner_(ACE_OS::NULL_thread),
     dp_factory_servant_(0),
     defaultDiscovery_(DDS_DEFAULT_DISCOVERY_METHOD),
     n_chunks_(DEFAULT_NUM_CHUNKS),
@@ -183,8 +184,8 @@ Service_Participant::Service_Participant()
     priority_max_(0),
     publisher_content_filter_(true),
 #ifndef OPENDDS_NO_PERSISTENCE_PROFILE
-    transient_data_cache_(),
-    persistent_data_cache_(),
+    transient_data_cache_(0),
+    persistent_data_cache_(0),
     persistent_data_dir_(DEFAULT_PERSISTENT_DATA_DIR),
 #endif
     pending_timeout_(ACE_Time_Value::zero),
@@ -379,7 +380,7 @@ Service_Participant::get_domain_participant_factory(int &argc,
       // initialized so we have no influence over its
       // scheduling or thread priority(ies).
 
-      /// @TODO: Move ORB intitialization to after the
+      /// @TODO: Move ORB initialization to after the
       ///        configuration file is processed and the
       ///        initial scheduling policy and priority are
       ///        established.
@@ -564,7 +565,7 @@ Service_Participant::parse_args(int &argc, ACE_TCHAR *argv[])
     }
   }
 
-  // Indicates sucessful parsing of the command line
+  // Indicates successful parsing of the command line
   return 0;
 }
 
@@ -1150,7 +1151,7 @@ Service_Participant::get_discovery(const DDS::DomainId_t domain)
                      domain));
         }
 
-        return 0;
+        return Discovery_rch();
 
       } else {
         // Found the default!
@@ -1173,7 +1174,7 @@ Service_Participant::get_discovery(const DDS::DomainId_t domain)
                    domain));
       }
 
-      return 0;
+      return Discovery_rch();
     }
   }
 
@@ -1339,7 +1340,7 @@ Service_Participant::load_configuration(
   if (this->global_transport_config_ != ACE_TEXT("")) {
     TransportConfig_rch config = TransportRegistry::instance()->get_config(
       ACE_TEXT_ALWAYS_CHAR(this->global_transport_config_.c_str()));
-    if (config == 0) {
+    if (!config) {
       ACE_ERROR_RETURN((LM_ERROR,
                         ACE_TEXT("(%P|%t) ERROR: Service_Participant::load_configuration ")
                         ACE_TEXT("Unable to locate specified global transport config: %s\n"),
@@ -1816,9 +1817,8 @@ Service_Participant::get_data_durability_cache(
                        this->factory_lock_,
                        0);
 
-      if (this->transient_data_cache_.get() == 0) {
-        ACE_auto_ptr_reset(this->transient_data_cache_,
-                           new DataDurabilityCache(kind));
+      if (!this->transient_data_cache_) {
+        this->transient_data_cache_.reset(new DataDurabilityCache(kind));
       }
     }
 
@@ -1832,10 +1832,9 @@ Service_Participant::get_data_durability_cache(
                        0);
 
       try {
-        if (this->persistent_data_cache_.get() == 0) {
-          ACE_auto_ptr_reset(this->persistent_data_cache_,
-                             new DataDurabilityCache(kind,
-                                                     this->persistent_data_dir_));
+        if (!this->persistent_data_cache_) {
+          this->persistent_data_cache_.reset(new DataDurabilityCache(kind,
+                                                                     this->persistent_data_dir_));
         }
 
       } catch (const std::exception& ex) {
@@ -1846,8 +1845,7 @@ Service_Participant::get_data_durability_cache(
                      ACE_TEXT("TRANSIENT behavior: %C\n"), ex.what()));
         }
 
-        ACE_auto_ptr_reset(this->persistent_data_cache_,
-                           new DataDurabilityCache(DDS::TRANSIENT_DURABILITY_QOS));
+        this->persistent_data_cache_.reset(new DataDurabilityCache(DDS::TRANSIENT_DURABILITY_QOS));
       }
     }
 
@@ -1861,7 +1859,7 @@ Service_Participant::get_data_durability_cache(
 void
 Service_Participant::add_discovery(Discovery_rch discovery)
 {
-  if (discovery != 0) {
+  if (discovery) {
     ACE_GUARD(ACE_Recursive_Thread_Mutex, guard, this->maps_lock_);
     this->discoveryMap_[discovery->key()] = discovery;
   }

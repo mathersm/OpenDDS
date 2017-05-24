@@ -69,13 +69,14 @@ namespace DCPS {
 //      Currently this is not needed because auto_enable_created_entities
 //      cannot be false.
 
-DomainParticipantImpl::DomainParticipantImpl(DomainParticipantFactoryImpl *       factory,
+// Implementation skeleton constructor
+DomainParticipantImpl::DomainParticipantImpl(DomainParticipantFactoryImpl *     factory,
                                              const DDS::DomainId_t&             domain_id,
-                                             const RepoId&                        dp_id,
+                                             const RepoId&                      dp_id,
                                              const DDS::DomainParticipantQos &  qos,
                                              DDS::DomainParticipantListener_ptr a_listener,
                                              const DDS::StatusMask &            mask,
-                                             bool                                 federated)
+                                             bool                               federated)
   : factory_(factory),
     default_topic_qos_(TheServiceParticipant->initial_TopicQos()),
     default_publisher_qos_(TheServiceParticipant->initial_PublisherQos()),
@@ -105,8 +106,6 @@ DomainParticipantImpl::create_publisher(
   DDS::PublisherListener_ptr a_listener,
   DDS::StatusMask mask)
 {
-  ACE_UNUSED_ARG(mask);
-
   DDS::PublisherQos pub_qos = qos;
 
   if (! this->validate_publisher_qos(pub_qos))
@@ -122,7 +121,7 @@ DomainParticipantImpl::create_publisher(
                                this),
                  DDS::Publisher::_nil());
 
-  if ((enabled_ == true) && (qos_.entity_factory.autoenable_created_entities == 1)) {
+  if ((enabled_ == true) && (qos_.entity_factory.autoenable_created_entities)) {
     pub->enable();
   }
 
@@ -204,7 +203,7 @@ DomainParticipantImpl::create_subscriber(
                                 this),
                  DDS::Subscriber::_nil());
 
-  if ((enabled_ == true) && (qos_.entity_factory.autoenable_created_entities == 1)) {
+  if ((enabled_ == true) && (qos_.entity_factory.autoenable_created_entities)) {
     sub->enable();
   }
 
@@ -429,6 +428,16 @@ DomainParticipantImpl::create_topic_i(
     if (0 == topic_mask) {
        // creating a topic with compile time type
       type_support = Registered_Data_Types->lookup(this, type_name);
+      if (CORBA::is_nil(type_support)) {
+        if (DCPS_debug_level >= 1) {
+            ACE_ERROR((LM_ERROR, ACE_TEXT("(%P|%t) ERROR: ")
+                       ACE_TEXT("DomainParticipantImpl::create_topic, ")
+                       ACE_TEXT("can't create a topic=%C type_name=%C ")
+                       ACE_TEXT("is not registered.\n"),
+                       topic_name, type_name));
+        }
+        return DDS::Topic::_nil();
+      }
       has_keys = type_support->has_dcps_key();
     }
     RepoId topic_id;
@@ -458,7 +467,7 @@ DomainParticipantImpl::create_topic_i(
     } else {
       ACE_ERROR((LM_ERROR,
                  ACE_TEXT("(%P|%t) ERROR: DomainParticipantImpl::create_topic, ")
-                 ACE_TEXT("assert_topic failed.\n")));
+                 ACE_TEXT("assert_topic failed with return value %d.\n"), status));
       return DDS::Topic::_nil();
     }
   }
@@ -531,7 +540,7 @@ DomainParticipantImpl::delete_topic_i(
         if (status != REMOVED) {
           ACE_ERROR_RETURN((LM_ERROR,
                             ACE_TEXT("(%P|%t) ERROR: DomainParticipantImpl::delete_topic_i, ")
-                            ACE_TEXT("remove_topic failed\n")),
+                            ACE_TEXT("remove_topic failed with return value %d\n"), status),
                            DDS::RETCODE_ERROR);
         }
 
@@ -570,11 +579,11 @@ DomainParticipantImpl::find_topic(
   ACE_Time_Value timeout_tv
   = ACE_OS::gettimeofday() + ACE_Time_Value(timeout.sec, timeout.nanosec/1000);
 
-  int first_time = 1;
+  bool first_time = true;
 
   while (first_time || ACE_OS::gettimeofday() < timeout_tv) {
     if (first_time) {
-      first_time = 0;
+      first_time = false;
     }
 
     TopicMap::mapped_type* entry = 0;
@@ -723,8 +732,12 @@ DomainParticipantImpl::create_contentfilteredtopic(
 
   DDS::ContentFilteredTopic_var cft;
   try {
-    cft = new ContentFilteredTopicImpl(name,
-      related_topic, filter_expression, expression_parameters, this);
+    // Create the cft in two steps so that we only have one place to
+    // check the expression parameters
+    cft = new ContentFilteredTopicImpl(name, related_topic, filter_expression, this);
+    if (cft->set_expression_parameters(expression_parameters) != DDS::RETCODE_OK) {
+      return 0;
+    }
   } catch (const std::exception& e) {
     if (DCPS_debug_level) {
       ACE_ERROR((LM_ERROR, ACE_TEXT("(%P|%t) ERROR: ")
@@ -846,12 +859,22 @@ DomainParticipantImpl::get_filter_eval(const char* filter)
 {
   ACE_GUARD_RETURN(ACE_Thread_Mutex, guard, filter_cache_lock_,
                    RcHandle<FilterEvaluator>());
-  typedef std::map<OPENDDS_STRING, RcHandle<FilterEvaluator> > Map;
-  Map::iterator iter = filter_cache_.find(filter);
-  if (iter == filter_cache_.end()) {
-    return filter_cache_[filter] = new FilterEvaluator(filter, false);
+
+  RcHandle<FilterEvaluator>& result = filter_cache_[filter];
+  if (!result) {
+    try {
+      result = make_rch<FilterEvaluator>(filter, false);
+    } catch (const std::exception& e) {
+      filter_cache_.erase(filter);
+      if (DCPS_debug_level) {
+        ACE_ERROR((LM_ERROR, ACE_TEXT("(%P|%t) ERROR: ")
+                   ACE_TEXT("DomainParticipantImpl::get_filter_eval, ")
+                   ACE_TEXT("can't create a writer-side content filter due to ")
+                   ACE_TEXT("runtime error: %C.\n"), e.what()));
+      }
+    }
   }
-  return iter->second;
+  return result;
 }
 
 void
@@ -1518,7 +1541,7 @@ DomainParticipantImpl::enable()
     return DDS::RETCODE_ERROR;
   }
 
-  if (qos.entity_factory.autoenable_created_entities == 0) {
+  if (!qos.entity_factory.autoenable_created_entities) {
     return DDS::RETCODE_PRECONDITION_NOT_MET;
   }
 
@@ -1638,7 +1661,7 @@ DomainParticipantImpl::create_new_topic(
                  DDS::Topic::_nil());
 
   if ((enabled_ == true)
-      && (qos_.entity_factory.autoenable_created_entities == 1)) {
+      && (qos_.entity_factory.autoenable_created_entities)) {
     topic_servant->enable();
   }
 
@@ -1857,7 +1880,7 @@ DomainParticipantImpl::create_recorder(DDS::Topic_ptr a_topic,
     dr_qos, a_listener,
     mask, this, subscriber_qos);
 
-  if ((enabled_ == true) && (qos_.entity_factory.autoenable_created_entities == 1)) {
+  if ((enabled_ == true) && (qos_.entity_factory.autoenable_created_entities)) {
     recorder->enable();
   }
 
@@ -1900,10 +1923,8 @@ DomainParticipantImpl::create_replayer(DDS::Topic_ptr a_topic,
 
   replayer->init(a_topic, topic_servant, dw_qos, a_listener, mask, this, pub_qos);
 
-  if (this->enabled_ == true
-      && qos_.entity_factory.autoenable_created_entities == 1) {
-
-    DDS::ReturnCode_t ret = replayer->enable();
+  if ((this->enabled_ == true) && (qos_.entity_factory.autoenable_created_entities)) {
+    const DDS::ReturnCode_t ret = replayer->enable();
 
     if (ret != DDS::RETCODE_OK) {
       ACE_ERROR((LM_ERROR,

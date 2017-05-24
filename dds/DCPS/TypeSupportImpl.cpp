@@ -23,24 +23,27 @@ DDS::ReturnCode_t
 TypeSupportImpl::register_type(DDS::DomainParticipant_ptr participant,
                                const char* type_name)
 {
-  if (type_name == 0 || type_name[0] == '\0') {
-    this->type_name_ = this->get_type_name();
-  } else {
-    this->type_name_ = type_name;
-  }
+  const char* const type =
+    (!type_name || !type_name[0]) ? default_type_name() : type_name;
+  return Registered_Data_Types->register_type(participant, type, this);
+}
 
-  return Registered_Data_Types->register_type(participant,
-                                              this->type_name_.in(), this);
+DDS::ReturnCode_t
+TypeSupportImpl::unregister_type(DDS::DomainParticipant_ptr participant,
+    const char* type_name)
+{
+  if (type_name == 0 || type_name[0] == '\0') {
+    return DDS::RETCODE_BAD_PARAMETER;
+  } else {
+    return Registered_Data_Types->unregister_type(participant, type_name, this);
+  }
 }
 
 char*
 TypeSupportImpl::get_type_name()
 {
-  if (type_name_.in() == 0) {
-    return CORBA::string_dup(default_type_name());
-  } else {
-    return CORBA::string_dup(type_name_.in());
-  }
+  CORBA::String_var type = default_type_name();
+  return type._retn();
 }
 
 }

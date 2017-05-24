@@ -19,6 +19,39 @@ OPENDDS_BEGIN_VERSIONED_NAMESPACE_DECL
 namespace OpenDDS {
 namespace DCPS {
 
+
+TransportSendControlElement::TransportSendControlElement(int initial_count,
+                                                         const RepoId& publisher_id,
+                                                         TransportSendListener* listener,
+                                                         const DataSampleHeader& header,
+                                                         ACE_Message_Block* msg_block,
+                                                         TransportSendControlElementAllocator* allocator)
+  : TransportQueueElement(initial_count),
+    publisher_id_(publisher_id),
+    listener_(listener),
+    header_(header),
+    msg_(msg_block),
+    dcps_elem_(0),
+    allocator_(allocator)
+{
+  DBG_ENTRY_LVL("TransportSendControlElement","TransportSendControlElement",6);
+}
+
+
+TransportSendControlElement::TransportSendControlElement(int initial_count,
+                                                         const DataSampleElement* dcps_elem,
+                                                         TransportSendControlElementAllocator* allocator)
+  : TransportQueueElement(initial_count)
+  , publisher_id_(dcps_elem->get_pub_id())
+  , listener_(dcps_elem->get_send_listener())
+  , header_(dcps_elem->get_header())
+  , msg_(dcps_elem->get_sample())
+  , dcps_elem_(dcps_elem)
+  , allocator_(allocator)
+{
+  DBG_ENTRY_LVL("TransportSendControlElement", "TransportSendControlElement", 6);
+}
+
 TransportSendControlElement::~TransportSendControlElement()
 {
   DBG_ENTRY_LVL("TransportSendControlElement","~TransportSendControlElement",6);
@@ -72,7 +105,7 @@ TransportSendControlElement::release_element(bool dropped_by_transport)
   const DataSampleElement* const dcps_elem = dcps_elem_;
 
   if (allocator_) {
-    ACE_DES_FREE(this, allocator_->free, TransportSendControlElement);
+    OPENDDS_DES_FREE_THIS(allocator_->free, TransportSendControlElement);
   }
 
   // reporting the message w/o using "this" pointer

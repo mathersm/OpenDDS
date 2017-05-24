@@ -174,7 +174,7 @@ namespace OpenDDS {
         if (ret != DDS::RETCODE_OK) {
           ACE_ERROR_RETURN((LM_ERROR,
                             ACE_TEXT("(%P|%t) ")
-                            ACE_TEXT("%CDataWriterImpl::write, ")
+                            ACE_TEXT("%CDataWriterImpl::write_w_timestamp, ")
                             ACE_TEXT("register failed err=%d.\n"),
                             TraitsType::type_name(),
                             ret),
@@ -235,7 +235,7 @@ namespace OpenDDS {
             {
               ACE_ERROR_RETURN ((LM_ERROR,
                                  ACE_TEXT("(%P|%t) ")
-                                 ACE_TEXT("%CDataWriterImpl::dispose, ")
+                                 ACE_TEXT("%CDataWriterImpl::dispose_w_timestamp, ")
                                  ACE_TEXT("The instance sample is not registered.\n"),
                                  TraitsType::type_name()),
                                 DDS::RETCODE_ERROR);
@@ -510,7 +510,14 @@ private:
           // Start counting byte-offset AFTER header
           serializer.reset_alignment();
         }
-        serializer << instance_data;
+
+        if (! (serializer << instance_data)) {
+          mb->release();
+          ACE_ERROR_RETURN((LM_ERROR,
+            ACE_TEXT("(%P|%t) OpenDDS::DCPS::DataWriterImpl::dds_marshal(), ")
+            ACE_TEXT("instance_data serialization error.\n")),
+            0);
+        }
       }
 
       return mb;
@@ -542,7 +549,7 @@ private:
           needs_creation = false;
 
           handle = it->second;
-          OpenDDS::DCPS::PublicationInstance* instance = get_handle_instance(handle);
+          OpenDDS::DCPS::PublicationInstance_rch instance = get_handle_instance(handle);
 
           if (instance->unregistered_ == false)
             {
@@ -582,7 +589,7 @@ private:
                                      ACE_TEXT("(%P|%t) ")
                                      ACE_TEXT("%CDataWriterImpl::")
                                      ACE_TEXT("get_or_create_instance_handle, ")
-                                     ACE_TEXT("insert %s failed. \n"),
+                                     ACE_TEXT("insert %C failed. \n"),
                                      TraitsType::type_name(), TraitsType::type_name()),
                                     DDS::RETCODE_ERROR);
                 }

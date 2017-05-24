@@ -92,13 +92,13 @@ int ACE_TMAIN (int argc, ACE_TCHAR *argv[]){
 
 #ifndef DDS_HAS_MINIMUM_BIT
       OpenDDS::RTPS::RtpsDiscovery_rch disc =
-        new OpenDDS::RTPS::RtpsDiscovery(OpenDDS::DCPS::Discovery::DEFAULT_RTPS);
+        OpenDDS::DCPS::make_rch<OpenDDS::RTPS::RtpsDiscovery>(OpenDDS::DCPS::Discovery::DEFAULT_RTPS);
 
       // The recommended value for the resend period is 2 seconds for
       // the current implementation of OpenDDS.
       disc->resend_period(ACE_Time_Value(2));
 
-      TheServiceParticipant->add_discovery(OpenDDS::DCPS::static_rchandle_cast<OpenDDS::DCPS::Discovery>(disc));
+      TheServiceParticipant->add_discovery(disc);
       TheServiceParticipant->set_repo_domain(11, disc->key());
 #endif
       TheServiceParticipant->set_default_discovery (OpenDDS::DCPS::Discovery::DEFAULT_RTPS);
@@ -117,8 +117,24 @@ int ACE_TMAIN (int argc, ACE_TCHAR *argv[]){
         ACE_DEBUG ((LM_DEBUG, "Created participant 1 with instance handle %d\n",
                     participant->get_instance_handle ()));
       }
-
-      OpenDDS::DCPS::TransportRegistry::instance()->bind_config(config, participant.in());
+      try
+      {
+        OpenDDS::DCPS::TransportRegistry::instance()->bind_config(config, participant.in());
+      }
+      catch (const OpenDDS::DCPS::Transport::MiscProblem &) {
+        ACE_ERROR_RETURN((LM_ERROR,
+          ACE_TEXT("%N:%l: main()")
+          ACE_TEXT(" ERROR: TransportRegistry::bind_config() throws")
+          ACE_TEXT(" Transport::MiscProblem exception\n")),
+          -1);
+      }
+      catch (const OpenDDS::DCPS::Transport::NotFound &) {
+        ACE_ERROR_RETURN((LM_ERROR,
+          ACE_TEXT("%N:%l: main()")
+          ACE_TEXT(" ERROR: TransportRegistry::bind_config() throws")
+          ACE_TEXT(" Transport::NotFound exception\n")),
+          -1);
+      }
 
       DDS::DomainParticipant_var participant2 =
         dpf->create_participant(11,

@@ -8,6 +8,9 @@
 #include "UdpDataLink.h"
 #include "UdpTransport.h"
 #include "UdpInst.h"
+#include "UdpSendStrategy.h"
+#include "UdpReceiveStrategy.h"
+
 
 #include "dds/DCPS/transport/framework/NetworkAddress.h"
 #include "dds/DCPS/transport/framework/DirectPriorityMapper.h"
@@ -24,16 +27,18 @@ OPENDDS_BEGIN_VERSIONED_NAMESPACE_DECL
 namespace OpenDDS {
 namespace DCPS {
 
-UdpDataLink::UdpDataLink(UdpTransport* transport,
+UdpDataLink::UdpDataLink(const UdpTransport_rch& transport,
                          Priority   priority,
-                         bool          active)
+                         bool       active)
   : DataLink(transport,
              priority,
              false, // is_loopback,
              active),// is_active
     active_(active),
     config_(0),
-    reactor_task_(0)
+    reactor_task_(0),
+    send_strategy_(make_rch<UdpSendStrategy>(this, transport->config())),
+    recv_strategy_(make_rch<UdpReceiveStrategy>(this))
 {
 }
 
@@ -110,7 +115,7 @@ UdpDataLink::open(const ACE_INET_Addr& remote_address)
     }
   }
 
-  if (this->config_->send_buffer_size_ > 0) {
+  if (this->config_->rcv_buffer_size_ > 0) {
     int rcv_size = this->config_->rcv_buffer_size_;
     if (this->socket_.set_option(SOL_SOCKET,
                                 SO_RCVBUF,

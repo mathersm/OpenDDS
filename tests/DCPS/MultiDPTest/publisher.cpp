@@ -80,7 +80,7 @@ int parse_args (int argc, ACE_TCHAR *argv[])
     }
   }
 
-  // Indicates sucessful parsing of the command line
+  // Indicates successful parsing of the command line
   return 0;
 }
 
@@ -185,7 +185,7 @@ void shutdown ()
   topic[0] = ::DDS::Topic::_nil ();
   topic[1] = ::DDS::Topic::_nil ();
   publisher = ::DDS::Publisher::_nil ();
-  writer_impl = 0;
+  writer_impl.reset();
   datawriter[0] = ::DDS::DataWriter::_nil ();
   datawriter[1] = ::DDS::DataWriter::_nil ();
 
@@ -225,8 +225,8 @@ int ACE_TMAIN(int argc, ACE_TCHAR *argv[])
           readers_ready = ACE_OS::fopen (sub_ready_filename.c_str (), ACE_TEXT("r"));
         } while (0 == readers_ready);
 
-      ACE_OS::fclose(writers_ready);
-      ACE_OS::fclose(readers_ready);
+      if (writers_ready) ACE_OS::fclose(writers_ready);
+      if (readers_ready) ACE_OS::fclose(readers_ready);
 
       // ensure the associations are fully established before writing.
       ACE_OS::sleep(3);
@@ -277,8 +277,8 @@ int ACE_TMAIN(int argc, ACE_TCHAR *argv[])
           readers_completed = ACE_OS::fopen (sub_finished_filename.c_str (), ACE_TEXT("r"));
         } while (0 == readers_completed);
 
-      ACE_OS::fclose(writers_completed);
-      ACE_OS::fclose(readers_completed);
+      if (writers_completed) ACE_OS::fclose(writers_completed);
+      if (readers_completed) ACE_OS::fclose(readers_completed);
 
       {  // Extra scope for VC6
         for (int i = 0; i < num_datawriters; i ++)

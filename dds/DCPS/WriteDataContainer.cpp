@@ -73,6 +73,7 @@ resend_data_expired(DataSampleElement const & element,
 WriteDataContainer::WriteDataContainer(
   DataWriterImpl* writer,
   CORBA::Long max_samples_per_instance,
+  CORBA::Long history_depth,
   CORBA::Long max_durable_per_instance,
   DDS::Duration_t max_blocking_time,
   size_t         n_chunks,
@@ -86,8 +87,10 @@ WriteDataContainer::WriteDataContainer(
   CORBA::Long     max_instances,
   CORBA::Long     max_total_samples)
   : transaction_id_(0),
+    publication_id_(GUID_UNKNOWN),
     writer_(writer),
     max_samples_per_instance_(max_samples_per_instance),
+    history_depth_(history_depth),
     max_durable_per_instance_(max_durable_per_instance),
     max_num_instances_(max_instances),
     max_num_samples_(max_total_samples),
@@ -186,7 +189,7 @@ WriteDataContainer::enqueue(
   DDS::InstanceHandle_t instance_handle)
 {
   // Get the PublicationInstance pointer from InstanceHandle_t.
-  PublicationInstance* const instance =
+  PublicationInstance_rch instance =
     get_handle_instance(instance_handle);
   // Extract the instance queue.
   InstanceDataSampleList& instance_list = instance->samples_;
@@ -274,10 +277,9 @@ WriteDataContainer::reenqueue_all(const RepoId& reader_id,
 DDS::ReturnCode_t
 WriteDataContainer::register_instance(
   DDS::InstanceHandle_t&      instance_handle,
-  DataSample*&                  registered_sample)
+  DataSample*&                registered_sample)
 {
-  PublicationInstance* instance = 0;
-  std::auto_ptr<PublicationInstance> safe_instance;
+  PublicationInstance_rch instance;
 
   if (instance_handle == DDS::HANDLE_NIL) {
     if (max_num_instances_ > 0
@@ -286,11 +288,7 @@ WriteDataContainer::register_instance(
     }
 
     // registered the instance for the first time.
-    ACE_NEW_RETURN(instance,
-                   PublicationInstance(registered_sample),
-                   DDS::RETCODE_ERROR);
-
-    ACE_auto_ptr_reset(safe_instance, instance);
+    instance = make_rch<PublicationInstance>(registered_sample);
 
     instance_handle = this->writer_->get_next_handle();
 
@@ -301,15 +299,15 @@ WriteDataContainer::register_instance(
                  ACE_TEXT("(%P|%t) ERROR: ")
                  ACE_TEXT("WriteDataContainer::register_instance, ")
                  ACE_TEXT("failed to insert instance handle=%X\n"),
-                 instance));
+                 instance.in()));
       return DDS::RETCODE_ERROR;
     } // if (0 != insert_attempt)
 
     instance->instance_handle_ = instance_handle;
 
   } else {
+
     int const find_attempt = find(instances_, instance_handle, instance);
-    ACE_auto_ptr_reset(safe_instance, instance);
 
     if (0 != find_attempt) {
       ACE_ERROR((LM_ERROR,
@@ -335,8 +333,6 @@ WriteDataContainer::register_instance(
     this->writer_->watchdog_->schedule_timer(instance);
   }
 
-  safe_instance.release();  // Safe to relinquish ownership.
-
   return DDS::RETCODE_OK;
 }
 
@@ -346,7 +342,7 @@ WriteDataContainer::unregister(
   DataSample*&            registered_sample,
   bool                    dup_registered_sample)
 {
-  PublicationInstance* instance = 0;
+  PublicationInstance_rch instance;
 
   int const find_attempt = find(instances_, instance_handle, instance);
 
@@ -386,7 +382,7 @@ WriteDataContainer::dispose(DDS::InstanceHandle_t instance_handle,
                    this->lock_,
                    DDS::RETCODE_ERROR);
 
-  PublicationInstance* instance = 0;
+  PublicationInstance_rch instance;
 
   int const find_attempt = find(instances_, instance_handle, instance);
 
@@ -439,7 +435,7 @@ WriteDataContainer::num_samples(DDS::InstanceHandle_t handle,
                    guard,
                    this->lock_,
                    DDS::RETCODE_ERROR);
-  PublicationInstance* instance = 0;
+  PublicationInstance_rch instance;
 
   int const find_attempt = find(instances_, handle, instance);
 
@@ -547,7 +543,7 @@ WriteDataContainer::data_delivered(const DataSampleElement* sample)
 
   if (DCPS_debug_level >= 2) {
     ACE_DEBUG ((LM_DEBUG, ACE_TEXT("(%P|%t) WriteDataContainer::data_delivered")
-                          ACE_TEXT(" %X \n"), sample));
+                          ACE_TEXT(" %@\n"), sample));
   }
 
   ACE_GUARD(ACE_Recursive_Thread_Mutex,
@@ -652,7 +648,7 @@ WriteDataContainer::data_delivered(const DataSampleElement* sample)
 
     } else {
       if (InstanceDataSampleList::on_some_list(sample)) {
-        PublicationInstance* const inst = sample->get_handle();
+        PublicationInstance_rch inst = sample->get_handle();
         inst->samples_.dequeue(sample);
       }
       release_buffer(stale);
@@ -1014,10 +1010,10 @@ WriteDataContainer::obtain_buffer_for_control(DataSampleElement*& element)
       sample_list_element_allocator_.malloc(
         sizeof(DataSampleElement))),
     DataSampleElement(publication_id_,
-                          this->writer_,
-                          0,
-                          &transport_send_element_allocator_,
-                          &transport_customized_element_allocator_),
+                      this->writer_,
+                      PublicationInstance_rch(),
+                      &transport_send_element_allocator_,
+                      &transport_customized_element_allocator_),
     DDS::RETCODE_ERROR);
 
   return DDS::RETCODE_OK;
@@ -1031,7 +1027,7 @@ WriteDataContainer::obtain_buffer(DataSampleElement*& element,
 
   remove_excess_durable();
 
-  PublicationInstance* instance = get_handle_instance(handle);
+  PublicationInstance_rch instance = get_handle_instance(handle);
 
   if (!instance) {
     return DDS::RETCODE_BAD_PARAMETER;
@@ -1063,6 +1059,19 @@ WriteDataContainer::obtain_buffer(DataSampleElement*& element,
          ((CORBA::Long) this->num_all_samples () >= this->max_num_samples_))) {
 
     if (this->writer_->qos_.reliability.kind == DDS::RELIABLE_RELIABILITY_QOS) {
+      if (instance_list.size() >= history_depth_) {
+        if (DCPS_debug_level >= 2) {
+          ACE_DEBUG((LM_DEBUG, ACE_TEXT("(%P|%t) WriteDataContainer::obtain_buffer")
+                     ACE_TEXT(" instance %d attempting to remove")
+                     ACE_TEXT(" its oldest sample (reliable)\n"),
+                     handle));
+        }
+        bool oldest_released = false;
+        ret = remove_oldest_sample(instance_list, oldest_released);
+        if (oldest_released) {
+          break;
+        }
+      }
       // Reliable writers can wait
       if (need_to_set_abs_timeout) {
         abs_timeout = duration_to_absolute_time_value (max_blocking_time_);
@@ -1239,10 +1248,6 @@ WriteDataContainer::unregister_all()
                  it->first));
     }
 
-    PublicationInstance* instance = it->second;
-
-    delete instance;
-
     // Get the next iterator before erase the instance handle.
     PublicationInstanceMapType::iterator it_next = it;
     ++it_next;
@@ -1254,17 +1259,16 @@ WriteDataContainer::unregister_all()
   ACE_UNUSED_ARG(registered_sample);
 }
 
-PublicationInstance*
+PublicationInstance_rch
 WriteDataContainer::get_handle_instance(DDS::InstanceHandle_t handle)
 {
-  PublicationInstance* instance = 0;
+  PublicationInstance_rch instance;
 
   if (0 != find(instances_, handle, instance)) {
-    ACE_ERROR((LM_ERROR,
-               ACE_TEXT("(%P|%t) ERROR: ")
+    ACE_DEBUG((LM_DEBUG,
+               ACE_TEXT("(%P|%t) ")
                ACE_TEXT("WriteDataContainer::get_handle_instance, ")
-               ACE_TEXT("lookup for %d failed\n"),
-               handle));
+               ACE_TEXT("lookup for %d failed\n"), handle));
   }
 
   return instance;
@@ -1293,7 +1297,13 @@ WriteDataContainer::copy_and_prepend(SendStateDataSampleList& list,
       continue;
 #endif
 
-    PublicationInstance* const inst = cur->get_handle();
+    PublicationInstance_rch inst = cur->get_handle();
+
+    if (!inst) {
+      // *cur is a control message, just skip it
+      continue;
+    }
+
     if (inst->durable_samples_remaining_ == 0)
       continue;
     --inst->durable_samples_remaining_;
@@ -1385,16 +1395,15 @@ WriteDataContainer::wait_pending()
   ACE_GUARD(ACE_Recursive_Thread_Mutex, guard, this->lock_);
   const bool report = DCPS_debug_level > 0 && pending_data();
   if (report) {
-    ACE_TCHAR date_time[50];
-    ACE_TCHAR* const time =
-      MessageTracker::timestamp(pending_timeout,
-                                date_time,
-                                50);
-    ACE_DEBUG((LM_DEBUG,
-               ACE_TEXT("%T (%P|%t) WriteDataContainer::wait_pending timeout ")
-               ACE_TEXT("at %s\n"),
-               (pending_timeout == ACE_Time_Value::zero ?
-                  ACE_TEXT("(no timeout)") : time)));
+    if (pending_timeout == ACE_Time_Value::zero) {
+      ACE_DEBUG((LM_DEBUG,
+                 ACE_TEXT("%T (%P|%t) WriteDataContainer::wait_pending no timeout\n")));
+    } else {
+      ACE_DEBUG((LM_DEBUG,
+                 ACE_TEXT("%T (%P|%t) WriteDataContainer::wait_pending timeout ")
+                 ACE_TEXT("at %#T\n"),
+                 &pending_timeout));
+    }
   }
   while (true) {
 
@@ -1490,7 +1499,7 @@ WriteDataContainer::sequence_acknowledged(const SequenceNumber sequence)
 void
 WriteDataContainer::wakeup_blocking_writers (DataSampleElement* stale)
 {
-  if (stale && waiting_on_release_) {
+  if (!stale && waiting_on_release_) {
     waiting_on_release_ = false;
 
     condition_.broadcast();

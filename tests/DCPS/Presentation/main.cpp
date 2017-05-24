@@ -112,7 +112,7 @@ ACE_TMAIN(int argc, ACE_TCHAR** argv)
     // Create Topic (FooTopic)
     DDS::Topic_var topic =
       participant->create_topic("FooTopic",
-                                ts->get_type_name(),
+                                CORBA::String_var(ts->get_type_name()),
                                 TOPIC_QOS_DEFAULT,
                                 DDS::TopicListener::_nil(),
                                 OpenDDS::DCPS::DEFAULT_STATUS_MASK);
@@ -215,7 +215,7 @@ ACE_TMAIN(int argc, ACE_TCHAR** argv)
     // Test coherent_access and ordered_access facets of
     // the PRESENTATION QoS policy.
     //
-    ACE_DEBUG((LM_ERROR,
+    ACE_ERROR((LM_ERROR,
                ACE_TEXT("%N:%l main()")
                ACE_TEXT(" INFO: Testing coherent_access...\n")));
     {
@@ -282,7 +282,7 @@ ACE_TMAIN(int argc, ACE_TCHAR** argv)
       }
     }
 
-    ACE_DEBUG((LM_ERROR,
+    ACE_ERROR((LM_ERROR,
                ACE_TEXT("%N:%l main()")
                ACE_TEXT(" INFO: Testing ordered_access...\n")));
     {

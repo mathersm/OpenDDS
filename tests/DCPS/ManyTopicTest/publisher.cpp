@@ -109,7 +109,7 @@ int parse_args(int argc, ACE_TCHAR *argv[])
       arg_shifter.ignore_arg();
     }
   }
-  // Indicates sucessful parsing of the command line
+  // Indicates successful parsing of the command line
   return 0;
 }
 
@@ -396,7 +396,10 @@ int ACE_TMAIN(int argc, ACE_TCHAR *argv[])
               ACE_ERROR((LM_ERROR,
                       ACE_TEXT("(%P|%t) ERROR: Unable to create publisher completed file\n")));
             }
+          else
+          {
             ACE_OS::fclose(writers_completed);
+          }
         }
 
       if (topics & TOPIC_T2)
@@ -411,7 +414,10 @@ int ACE_TMAIN(int argc, ACE_TCHAR *argv[])
               ACE_ERROR((LM_ERROR,
                       ACE_TEXT("(%P|%t) ERROR: Unable to create publisher completed file\n")));
             }
+          else
+          {
             ACE_OS::fclose(writers_completed);
+          }
         }
 
       if (topics & TOPIC_T3)
@@ -426,7 +432,10 @@ int ACE_TMAIN(int argc, ACE_TCHAR *argv[])
               ACE_ERROR((LM_ERROR,
                       ACE_TEXT("(%P|%t) ERROR: Unable to create publisher completed file\n")));
             }
+          else
+          {
             ACE_OS::fclose(writers_completed);
+          }
         }
 
       // Wait for the subscriber to finish.

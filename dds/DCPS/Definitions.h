@@ -31,14 +31,30 @@
 #endif
 
 #if defined (ACE_HAS_CPP11)
-#define OPENDDS_DELETED_COPY_CTOR_ASSIGN(CLASS)         \
+#define OPENDDS_DELETED_COPY_MOVE_CTOR_ASSIGN(CLASS)         \
   CLASS(const CLASS&) = delete;           \
-  CLASS& operator=(const CLASS&) = delete;
+  CLASS(CLASS&&) = delete;           \
+  CLASS& operator=(const CLASS&) = delete; \
+  CLASS& operator=(CLASS&&) = delete;
 #else
-#define OPENDDS_DELETED_COPY_CTOR_ASSIGN(CLASS)         \
+#define OPENDDS_DELETED_COPY_MOVE_CTOR_ASSIGN(CLASS)         \
   ACE_UNIMPLEMENTED_FUNC(CLASS(const CLASS&))           \
   ACE_UNIMPLEMENTED_FUNC(CLASS& operator=(const CLASS&))
 #endif
+
+#if defined (ACE_DES_FREE_THIS)
+#define OPENDDS_DES_FREE_THIS ACE_DES_FREE_THIS
+#else
+// The macro ACE_DES_FREE_THIS is part of ACE 6.4.2 or newer, define it within
+// OpenDDS at the moment we compile against an older ACE version
+# define OPENDDS_DES_FREE_THIS(DEALLOCATOR,CLASS) \
+   do { \
+        this->~CLASS (); \
+        DEALLOCATOR (this); \
+      } \
+   while (0)
+#endif /* ACE_DES_FREE_THIS */
+
 
 // If features content_filtered_topic, multi_topic, and query_condition
 // are all disabled, define a macro to indicate common code these
@@ -196,10 +212,12 @@ inline ACE_CDR::Boolean
 operator>>(Serializer& s, SequenceNumber& x) {
   ACE_INT32 high;
   ACE_UINT32 low;
-  s >> high;
-  if (!s.good_bit()) return false;
-  s >> low;
-  if (!s.good_bit()) return false;
+  if (!(s >> high)) {
+    return false;
+  }
+  if (!(s >> low)) {
+    return false;
+  }
   x = SequenceNumber(high, low);
   return true;
 }

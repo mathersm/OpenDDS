@@ -65,7 +65,7 @@ SubscriberImpl::SubscriberImpl(DDS::InstanceHandle_t       handle,
 SubscriberImpl::~SubscriberImpl()
 {
   //
-  // The datareders should be deleted already before calling delete
+  // The datareaders should be deleted already before calling delete
   // subscriber.
   if (!is_clean()) {
     ACE_ERROR((LM_ERROR,
@@ -214,10 +214,8 @@ SubscriberImpl::create_datareader(
                    this,
                    dr_obj.in());
 
-  if ((this->enabled_ == true)
-      && (qos_.entity_factory.autoenable_created_entities == 1)) {
-    DDS::ReturnCode_t ret
-      = dr_servant->enable();
+  if ((this->enabled_ == true) && (qos_.entity_factory.autoenable_created_entities)) {
+    const DDS::ReturnCode_t ret = dr_servant->enable();
 
     if (ret != DDS::RETCODE_OK) {
       ACE_ERROR((LM_ERROR,
@@ -231,7 +229,6 @@ SubscriberImpl::create_datareader(
   // add created data reader to this' data reader container -
   // done in enable_reader
   return DDS::DataReader::_duplicate(dr_obj.in());
-
 }
 
 DDS::ReturnCode_t
@@ -294,6 +291,14 @@ SubscriberImpl::delete_datareader(::DDS::DataReader_ptr a_datareader)
         return DDS::RETCODE_OK;
       }
 #endif
+      if (!dr_servant) {
+        ACE_ERROR_RETURN((LM_ERROR,
+                          ACE_TEXT("(%P|%t) ERROR: ")
+                          ACE_TEXT("SubscriberImpl::delete_datareader: ")
+                          ACE_TEXT("datareader(topic_name=%C)")
+                          ACE_TEXT("for unknown repo id not found.\n"),
+                          topic_name.in()), ::DDS::RETCODE_ERROR);
+      }
       RepoId id = dr_servant->get_subscription_id();
       GuidConverter converter(id);
       ACE_ERROR_RETURN((LM_ERROR,
@@ -301,7 +306,8 @@ SubscriberImpl::delete_datareader(::DDS::DataReader_ptr a_datareader)
                         ACE_TEXT("SubscriberImpl::delete_datareader: ")
                         ACE_TEXT("datareader(topic_name=%C) %C not found.\n"),
                         topic_name.in(),
-                        OPENDDS_STRING(converter).c_str()),::DDS::RETCODE_ERROR);
+                        OPENDDS_STRING(converter).c_str()),
+                        ::DDS::RETCODE_ERROR);
     }
 
     datareader_map_.erase(it);
@@ -312,7 +318,15 @@ SubscriberImpl::delete_datareader(::DDS::DataReader_ptr a_datareader)
     this->monitor_->report();
   }
 
-  RepoId subscription_id  = dr_servant->get_subscription_id();
+  if (!dr_servant) {
+    ACE_ERROR_RETURN((LM_ERROR,
+                      ACE_TEXT("(%P|%t) ERROR: ")
+                      ACE_TEXT("SubscriberImpl::delete_datareader: ")
+                      ACE_TEXT("could not remove unknown subscription.\n")),
+                      ::DDS::RETCODE_ERROR);
+  }
+
+  RepoId subscription_id = dr_servant->get_subscription_id();
   Discovery_rch disco = TheServiceParticipant->get_discovery(this->domain_id_);
   if (!disco->remove_subscription(this->domain_id_,
                                   participant_->get_id(),
@@ -321,7 +335,7 @@ SubscriberImpl::delete_datareader(::DDS::DataReader_ptr a_datareader)
                       ACE_TEXT("(%P|%t) ERROR: ")
                       ACE_TEXT("SubscriberImpl::delete_datareader: ")
                       ACE_TEXT(" could not remove subscription from discovery.\n")),
-                     ::DDS::RETCODE_ERROR);
+                      ::DDS::RETCODE_ERROR);
   }
 
   // Call remove association before unregistering the datareader from the transport,
@@ -477,8 +491,7 @@ SubscriberImpl::get_datareaders(
 #endif
 
   // Return set of datareaders.
-  int count(0);
-  readers.length(count);
+  readers.length(0);
 
   for (DataReaderSet::const_iterator pos = datareader_set_.begin();
        pos != datareader_set_.end(); ++pos) {
@@ -486,7 +499,6 @@ SubscriberImpl::get_datareaders(
         (*pos)->have_view_states(view_states) &&
         (*pos)->have_instance_states(instance_states)) {
       push_back(readers, (*pos)->get_dr_obj_ref());
-      ++count;
     }
   }
 

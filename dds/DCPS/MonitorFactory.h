@@ -12,6 +12,8 @@
 #include "ace/Service_Config.h"
 #include "tao/corba.h"
 #include "dcps_export.h"
+#include "dds/DCPS/PublicationInstance.h"
+
 
 #if !defined (ACE_LACKS_PRAGMA_ONCE)
 #pragma once
@@ -83,7 +85,7 @@ public:
   /// Factory function to create a transport monitor object
   virtual Monitor* create_transport_monitor(TransportImpl* transport);
 
-  ///Initialize the monitor (required to report data)
+  /// Initialize the monitor (required to report data)
   virtual void initialize();
 
   static int service_initialize();

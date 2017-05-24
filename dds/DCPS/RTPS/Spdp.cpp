@@ -379,7 +379,7 @@ Spdp::SpdpTransport::SpdpTransport(Spdp* outer)
   if (0 != multicast_socket_.join(default_multicast, 1,
                                   net_if.empty() ? 0 :
                                   ACE_TEXT_CHAR_TO_TCHAR(net_if.c_str()))) {
-    ACE_DEBUG((LM_ERROR,
+    ACE_ERROR((LM_ERROR,
         ACE_TEXT("(%P|%t) ERROR: Spdp::SpdpTransport::SpdpTransport() - ")
         ACE_TEXT("failed to join multicast group %C:%hd %p\n"),
         mc_addr.c_str(), mc_port, ACE_TEXT("ACE_SOCK_Dgram_Mcast::join")));
@@ -393,8 +393,6 @@ Spdp::SpdpTransport::SpdpTransport(Spdp* outer)
        end = outer_->disco_->spdp_send_addrs().end(); it != end; ++it) {
     send_addrs_.insert(ACE_INET_Addr(it->c_str()));
   }
-
-  reference_counting_policy().value(Reference_Counting_Policy::ENABLED);
 }
 
 void
@@ -710,7 +708,13 @@ Spdp::SpdpTransport::handle_input(ACE_HANDLE h)
     if (submessageLength && buff_.length()) {
       const size_t read = start - buff_.length();
       if (read < static_cast<size_t>(submessageLength + SMHDR_SZ)) {
-        ser.skip(static_cast<CORBA::UShort>(submessageLength + SMHDR_SZ - read));
+        if (!ser.skip(static_cast<CORBA::UShort>(submessageLength + SMHDR_SZ
+                                                 - read))) {
+          ACE_ERROR((LM_ERROR,
+            ACE_TEXT("(%P|%t) ERROR: Spdp::SpdpTransport::handle_input() - ")
+            ACE_TEXT("failed to skip sub message length\n")));
+          return 0;
+        }
       }
     } else if (!submessageLength) {
       break; // submessageLength of 0 indicates the last submessage
@@ -721,7 +725,7 @@ Spdp::SpdpTransport::handle_input(ACE_HANDLE h)
 }
 
 int
-Spdp::SpdpTransport::handle_exception(ACE_HANDLE )
+Spdp::SpdpTransport::handle_exception(ACE_HANDLE)
 {
   outer_->wait_for_acks().ack();
   return 0;
@@ -783,7 +787,7 @@ Spdp::SpdpTransport::open_unicast_socket(u_short port_common,
   }
 
   if (!OpenDDS::DCPS::set_socket_multicast_ttl(unicast_socket_, outer_->disco_->ttl())) {
-    ACE_DEBUG((LM_ERROR,
+    ACE_ERROR((LM_ERROR,
                ACE_TEXT("(%P|%t) ERROR: Spdp::SpdpTransport::open_unicast_socket() - ")
                ACE_TEXT("failed to set TTL value to %d ")
                ACE_TEXT("for port:%hd %p\n"),

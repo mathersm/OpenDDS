@@ -93,7 +93,7 @@ int parse_args (int argc, ACE_TCHAR *argv[])
       arg_shifter.ignore_arg ();
     }
   }
-  // Indicates sucessful parsing of the command line
+  // Indicates successful parsing of the command line
   return 0;
 }
 
@@ -205,8 +205,8 @@ void shutdown ()
   topic[1] = 0;
   subscriber[0] = 0;
   subscriber[1] = 0;
-  reader_impl[0] = 0;
-  reader_impl[1] = 0;
+  reader_impl[0].reset();
+  reader_impl[1].reset();
   listener[0] = 0;
   listener[1] = 0;
   datareader[0] = 0;
@@ -251,8 +251,8 @@ int ACE_TMAIN(int argc, ACE_TCHAR *argv[])
           writers_ready = ACE_OS::fopen (pub_ready_filename.c_str (), ACE_TEXT("r"));
         } while (0 == writers_ready);
 
-      ACE_OS::fclose(readers_ready);
-      ACE_OS::fclose(writers_ready);
+      if (readers_ready) ACE_OS::fclose(readers_ready);
+      if (writers_ready) ACE_OS::fclose(writers_ready);
 
       int expected
         = num_datawriters * num_instances_per_writer * num_samples_per_instance;
@@ -298,8 +298,8 @@ int ACE_TMAIN(int argc, ACE_TCHAR *argv[])
           writers_completed = ACE_OS::fopen (pub_finished_filename.c_str (), ACE_TEXT("r"));
         }
 
-      ACE_OS::fclose(readers_completed);
-      ACE_OS::fclose(writers_completed);
+      if (readers_completed) ACE_OS::fclose(readers_completed);
+      if (writers_completed) ACE_OS::fclose(writers_completed);
     }
   catch (const TestException&)
     {

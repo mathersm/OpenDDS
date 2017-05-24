@@ -44,20 +44,20 @@ namespace DCPS {
 class RtpsUdpInst;
 class RtpsUdpTransport;
 class ReceivedDataSample;
+typedef RcHandle<RtpsUdpInst> RtpsUdpInst_rch;
+typedef RcHandle<RtpsUdpTransport> RtpsUdpTransport_rch;
 
 class OpenDDS_Rtps_Udp_Export RtpsUdpDataLink : public DataLink {
 public:
 
-  RtpsUdpDataLink(RtpsUdpTransport* transport,
+  RtpsUdpDataLink(const RtpsUdpTransport_rch& transport,
                   const GuidPrefix_t& local_prefix,
-                  RtpsUdpInst* config,
-                  TransportReactorTask* reactor_task);
+                  const RtpsUdpInst_rch& config,
+                  const TransportReactorTask_rch& reactor_task);
 
-  void send_strategy(RtpsUdpSendStrategy* send_strategy);
-  void receive_strategy(RtpsUdpReceiveStrategy* recv_strategy);
   bool add_delayed_notification(TransportQueueElement* element);
   void do_remove_sample(const RepoId& pub_id, const TransportQueueElement::MatchCriteria& criteria);
-  RtpsUdpInst* config();
+  RtpsUdpInst_rch config() const;
 
   ACE_Reactor* get_reactor();
   bool reactor_is_shut_down();
@@ -144,7 +144,7 @@ private:
                       const TransportQueueElement& tqe,
                       const DestToEntityMap& dtem);
 
-  RtpsUdpInst* config_;
+  RtpsUdpInst_rch config_;
   TransportReactorTask_rch reactor_task_;
 
   RtpsUdpSendStrategy_rch send_strategy_;
@@ -424,7 +424,7 @@ private:
 
   };
 
-  RcEventHandler<HeartBeat> heartbeat_, heartbeatchecker_;
+  RcHandle<HeartBeat> heartbeat_, heartbeatchecker_;
 
   /// Data structure representing an "interesting" remote entity for static discovery.
   struct InterestingRemote {
@@ -452,12 +452,7 @@ private:
   InterestingRemoteMapType interesting_readers_;
   InterestingRemoteMapType interesting_writers_;
 
-  mutable ACE_Thread_Mutex writer_no_longer_exists_lock_,
-                           reader_no_longer_exists_lock_;
-
   typedef std::pair<RepoId, InterestingRemote> CallbackType;
-  OPENDDS_VECTOR(CallbackType) writerDoesNotExistCallbacks_;
-  OPENDDS_VECTOR(CallbackType) readerDoesNotExistCallbacks_;
 
 
   typedef OPENDDS_MAP_CMP(RepoId, CORBA::Long, DCPS::GUID_tKeyLessThan) HeartBeatCountMapType;
@@ -487,6 +482,27 @@ private:
   InterestingAckNackSetType interesting_ack_nacks_;
 
   void send_ack_nacks(RtpsReaderMap::iterator rr, bool finalFlag = false);
+
+  class HeldDataDeliveryHandler : public RcEventHandler {
+  public:
+    HeldDataDeliveryHandler(RtpsUdpDataLink* link)
+      : link_(link) {
+      }
+
+      //Reactor invokes this after being notified in schedule_stop or cancel_release
+    int handle_exception(ACE_HANDLE /* fd */);
+
+    void notify_delivery(const RepoId& readerId, WriterInfo& info);
+
+    virtual ACE_Event_Handler::Reference_Count add_reference();
+    virtual ACE_Event_Handler::Reference_Count remove_reference();
+  private:
+    RtpsUdpDataLink* link_;
+    typedef std::pair<ReceivedDataSample, RepoId> HeldDataEntry;
+    typedef OPENDDS_VECTOR(HeldDataEntry) HeldData;
+    HeldData held_data_;
+  };
+  HeldDataDeliveryHandler held_data_delivery_handler_;
 };
 
 } // namespace DCPS

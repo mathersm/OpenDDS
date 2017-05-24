@@ -13,6 +13,7 @@
 #include "dds/DCPS/transport/framework/TransportControlElement.h"
 #include "dds/DCPS/transport/framework/EntryExit.h"
 #include "dds/DCPS/DataSampleHeader.h"
+#include "dds/DCPS/GuidConverter.h"
 #include "ace/Log_Msg.h"
 
 #if !defined (__ACE_INLINE__)
@@ -23,18 +24,17 @@ OPENDDS_BEGIN_VERSIONED_NAMESPACE_DECL
 
 OpenDDS::DCPS::TcpDataLink::TcpDataLink(
   const ACE_INET_Addr& remote_address,
-  OpenDDS::DCPS::TcpTransport*  transport_impl,
+  const OpenDDS::DCPS::TcpTransport_rch&  transport_impl,
   Priority priority,
   bool        is_loopback,
   bool        is_active)
   : DataLink(transport_impl, priority, is_loopback, is_active),
     remote_address_(remote_address),
+    transport_(transport_impl),
     graceful_disconnect_sent_(false),
     release_is_pending_(false)
 {
   DBG_ENTRY_LVL("TcpDataLink","TcpDataLink",6);
-  transport_impl->_add_ref();
-  this->transport_ = transport_impl;
 }
 
 OpenDDS::DCPS::TcpDataLink::~TcpDataLink()
@@ -58,7 +58,7 @@ OpenDDS::DCPS::TcpDataLink::stop_i()
     this->connection_->disconnect();
 
     // Drop our reference to the connection object.
-    this->connection_ = 0;
+    this->connection_.reset();
   }
 }
 
@@ -117,7 +117,7 @@ OpenDDS::DCPS::TcpDataLink::connect(
   }
 
   // Let connection know the datalink for callbacks upon reconnect failure.
-  this->connection_->set_datalink(this);
+  this->connection_->set_datalink(rchandle_from(this));
 
   // And lastly, inform our base class (DataLink) that we are now "connected",
   // and it should start the strategy objects.
@@ -127,7 +127,7 @@ OpenDDS::DCPS::TcpDataLink::connect(
     // that an error has taken place.
 
     // Drop our reference to the connection object.
-    this->connection_ = 0;
+    this->connection_.reset();
 
     return -1;
   }
@@ -163,7 +163,7 @@ OpenDDS::DCPS::TcpDataLink::reuse_existing_connection(const TcpConnection_rch& c
     TransportSendStrategy_rch bss;
 
     if (this->receive_strategy_.is_nil() && this->send_strategy_.is_nil()) {
-      this->connection_ = 0;
+      this->connection_.reset();
       return -1;
     } else {
       brs = this->receive_strategy_;
@@ -177,11 +177,11 @@ OpenDDS::DCPS::TcpDataLink::reuse_existing_connection(const TcpConnection_rch& c
 
       // Associate the new connection object with the receiving strategy and disassociate
       // the old connection object with the receiving strategy.
-      int rs_result = rs->reset(this->connection_.in());
+      int rs_result = rs->reset(this->connection_);
 
       // Associate the new connection object with the sending strategy and disassociate
       // the old connection object with the sending strategy.
-      int ss_result = ss->reset(this->connection_.in(), true);
+      int ss_result = ss->reset(this->connection_, true);
 
       if (rs_result == 0 && ss_result == 0) {
         return 0;
@@ -196,7 +196,7 @@ OpenDDS::DCPS::TcpDataLink::reuse_existing_connection(const TcpConnection_rch& c
 /// connection object and the "old" connection object is replaced by
 /// the new connection object.
 int
-OpenDDS::DCPS::TcpDataLink::reconnect(TcpConnection* connection)
+OpenDDS::DCPS::TcpDataLink::reconnect(const TcpConnection_rch& connection)
 {
   DBG_ENTRY_LVL("TcpDataLink","reconnect",6);
 
@@ -208,7 +208,7 @@ OpenDDS::DCPS::TcpDataLink::reconnect(TcpConnection* connection)
     return -1;
   }
 
-  this->connection_->transfer(connection);
+  this->connection_->transfer(connection.in());
 
   bool released = false;
   TransportStrategy_rch brs;
@@ -219,7 +219,7 @@ OpenDDS::DCPS::TcpDataLink::reconnect(TcpConnection* connection)
 
     if (this->receive_strategy_.is_nil() && this->send_strategy_.is_nil()) {
       released = true;
-      this->connection_ = 0;
+      this->connection_.reset();
 
     } else {
       brs = this->receive_strategy_;
@@ -227,14 +227,11 @@ OpenDDS::DCPS::TcpDataLink::reconnect(TcpConnection* connection)
     }
   }
 
-  TcpConnection_rch conn_rch(connection, false);
-
   if (released) {
-    TcpDataLink_rch this_rch(this, false);
-    return this->transport_->connect_tcp_datalink(this_rch, conn_rch);
+    return this->transport_->connect_tcp_datalink(rchandle_from(this), connection);
   }
 
-  this->connection_ = conn_rch._retn();
+  this->connection_ = connection;
 
   TcpReceiveStrategy* rs = static_cast<TcpReceiveStrategy*>(brs.in());
 
@@ -242,11 +239,11 @@ OpenDDS::DCPS::TcpDataLink::reconnect(TcpConnection* connection)
 
   // Associate the new connection object with the receiveing strategy and disassociate
   // the old connection object with the receiveing strategy.
-  int rs_result = rs->reset(this->connection_.in());
+  int rs_result = rs->reset(this->connection_);
 
   // Associate the new connection object with the sending strategy and disassociate
   // the old connection object with the sending strategy.
-  int ss_result = ss->reset(this->connection_.in());
+  int ss_result = ss->reset(this->connection_);
 
   if (rs_result == 0 && ss_result == 0) {
     return 0;
@@ -272,7 +269,7 @@ OpenDDS::DCPS::TcpDataLink::send_graceful_disconnect_message()
   // can be used.
 
   //header_data.byte_order_
-  //  = this->transport_->get_configuration()->swap_bytes() ? !TAO_ENCAP_BYTE_ORDER : TAO_ENCAP_BYTE_ORDER;
+  //  = this->transport_->config()->swap_bytes() ? !TAO_ENCAP_BYTE_ORDER : TAO_ENCAP_BYTE_ORDER;
   //header_data.message_length_ = 0;
   //header_data.sequence_ = 0;
   //DDS::Time_t source_timestamp
@@ -335,14 +332,126 @@ OpenDDS::DCPS::TcpDataLink::send_graceful_disconnect_message()
   this->send_i(send_element, false);
 }
 
-void OpenDDS::DCPS::TcpDataLink::set_release_pending(bool flag)
+void
+OpenDDS::DCPS::TcpDataLink::set_release_pending(bool flag)
 {
   this->release_is_pending_ = flag;
 }
 
-bool OpenDDS::DCPS::TcpDataLink::is_release_pending() const
+bool
+OpenDDS::DCPS::TcpDataLink::is_release_pending() const
 {
   return this->release_is_pending_.value();
+}
+
+bool
+OpenDDS::DCPS::TcpDataLink::handle_send_request_ack(TransportQueueElement* element)
+{
+  if (Transport_debug_level >= 1) {
+    const GuidConverter converter(element->publication_id());
+    ACE_DEBUG((LM_DEBUG, ACE_TEXT("(%P|%t) TcpDataLink::handle_send_request_ack(%@) sequence number %q, publication_id=%C\n"),
+      element, element->sequence().getValue(), OPENDDS_STRING(converter).c_str()));
+  }
+
+  ACE_Guard<ACE_SYNCH_MUTEX> guard(pending_request_acks_lock_);
+  pending_request_acks_.push_back(element);
+  return false;
+}
+
+
+void
+OpenDDS::DCPS::TcpDataLink::ack_received(const ReceivedDataSample& sample)
+{
+  SequenceNumber sequence = sample.header_.sequence_;
+
+  if (Transport_debug_level >= 1) {
+    const GuidConverter converter(sample.header_.publication_id_);
+    ACE_DEBUG((LM_DEBUG, ACE_TEXT("(%P|%t) TcpDataLink::ack_received() received sequence number %q, publiction_id=%C\n"),
+      sequence.getValue(), OPENDDS_STRING(converter).c_str()));
+  }
+
+  TransportQueueElement* elem=0;
+  {
+    // find the pending request with the same sequence number.
+    ACE_Guard<ACE_SYNCH_MUTEX> guard(pending_request_acks_lock_);
+    PendingRequestAcks::iterator it;
+    for (it = pending_request_acks_.begin(); it != pending_request_acks_.end(); ++it){
+      if ((*it)->sequence() == sequence && (*it)->publication_id() == sample.header_.publication_id_) {
+        elem = *it;
+        pending_request_acks_.erase(it);
+        break;
+      }
+    }
+  }
+
+  if (elem) {
+    if (Transport_debug_level >= 1) {
+      ACE_DEBUG((LM_DEBUG, ACE_TEXT("(%P|%t) TcpDataLink::ack_received() found matching element %@\n"),
+        elem));
+    }
+    this->send_strategy_->deliver_ack_request(elem);
+  }
+  else {
+    ACE_DEBUG((LM_DEBUG, ACE_TEXT("(%P|%t) TcpDataLink::ack_received() received unknown sequence number %q\n"),
+      sequence.getValue()));
+  }
+}
+
+void
+OpenDDS::DCPS::TcpDataLink::request_ack_received(const ReceivedDataSample& sample)
+{
+  DataSampleHeader header_data;
+  // The message_id_ is the most important value for the DataSampleHeader.
+  header_data.message_id_ = SAMPLE_ACK;
+
+  // Other data in the DataSampleHeader are not necessary set. The bogus values
+  // can be used.
+
+  header_data.byte_order_  = ACE_CDR_BYTE_ORDER;
+  header_data.message_length_ = 0;
+  header_data.sequence_ = sample.header_.sequence_;
+  header_data.publication_id_ = sample.header_.publication_id_;
+  header_data.publisher_id_ = sample.header_.publisher_id_;
+
+  ACE_Message_Block* message;
+  size_t max_marshaled_size = header_data.max_marshaled_size();
+
+  ACE_NEW(message,
+          ACE_Message_Block(max_marshaled_size,
+                            ACE_Message_Block::MB_DATA,
+                            0, //cont
+                            0, //data
+                            0, //allocator_strategy
+                            0, //locking_strategy
+                            ACE_DEFAULT_MESSAGE_BLOCK_PRIORITY,
+                            ACE_Time_Value::zero,
+                            ACE_Time_Value::max_time,
+                            0,
+                            0));
+
+  *message << header_data;
+
+  TransportControlElement* send_element = 0;
+
+  ACE_NEW(send_element, TransportControlElement(message));
+
+  // give the message block ownership to TransportControlElement
+  message->release();
+
+  // I don't want to rebuild a connection in order to send
+  // a sample ack message
+  this->send_i(send_element, false);
+}
+
+void
+OpenDDS::DCPS::TcpDataLink::drop_pending_request_acks()
+{
+  ACE_Guard<ACE_SYNCH_MUTEX> guard(pending_request_acks_lock_);
+  PendingRequestAcks::iterator it;
+  for (it = pending_request_acks_.begin(); it != pending_request_acks_.end(); ++it){
+    (*it)->data_dropped(true);
+  }
+  pending_request_acks_.clear();
 }
 
 OPENDDS_END_VERSIONED_NAMESPACE_DECL

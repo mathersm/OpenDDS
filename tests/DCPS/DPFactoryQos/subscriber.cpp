@@ -14,6 +14,7 @@
 #include <dds/DCPS/Service_Participant.h>
 #include <dds/DCPS/Marked_Default_Qos.h>
 #include <dds/DCPS/SubscriberImpl.h>
+#include <dds/DCPS/Qos_Helper.h>
 #include "dds/DCPS/StaticIncludes.h"
 
 #include <ace/streams.h>
@@ -23,6 +24,7 @@
 
 using namespace Messenger;
 using namespace std;
+using namespace OpenDDS::DCPS;
 
 int ACE_TMAIN (int argc, ACE_TCHAR *argv[])
 {
@@ -41,14 +43,14 @@ int ACE_TMAIN (int argc, ACE_TCHAR *argv[])
         return 1;
       }
 
-      if (fqos.entity_factory.autoenable_created_entities == 0)
+      if (!fqos.entity_factory.autoenable_created_entities)
       {
         cerr << "The DomainParticipantFactory defaults to autoenable upon entities creation." << endl;
         return 1;
       }
 
       // Now disable DomainParticipantFactory autoenable
-      fqos.entity_factory.autoenable_created_entities = 0;
+      fqos.entity_factory.autoenable_created_entities = false;
       if (dpf->set_qos (fqos) != ::DDS::RETCODE_OK)
       {
         cerr << "DomainParticipantFactory set_qos failed." << endl;
@@ -62,6 +64,21 @@ int ACE_TMAIN (int argc, ACE_TCHAR *argv[])
       if (CORBA::is_nil (participant.in ())) {
         cerr << "create_participant failed." << endl;
         return 1 ;
+      }
+
+      DDS::DomainParticipantQos dpqos;
+      if (participant->get_qos (dpqos) != ::DDS::RETCODE_OK)
+      {
+        cerr << "DomainParticipant get_qos failed." << endl;
+        cerr << "DomainParticipant QoS matches marked PARTICIPANT_QOS_DEFAULT." << endl;
+        return 1;
+      }
+
+      // The QoS of the dp shouldn't match the marked value which has a magic value
+      if (dpqos == PARTICIPANT_QOS_DEFAULT)
+      {
+        cerr << "ERROR: DomainParticipant QoS matches marked PARTICIPANT_QOS_DEFAULT." << endl;
+        return 1;
       }
 
       if (participant->enable () != ::DDS::RETCODE_PRECONDITION_NOT_MET)
@@ -139,7 +156,7 @@ int ACE_TMAIN (int argc, ACE_TCHAR *argv[])
       }
 
       // Now enable DomainParticipantFactory autoenable
-      fqos.entity_factory.autoenable_created_entities = 1;
+      fqos.entity_factory.autoenable_created_entities = true;
       if (dpf->set_qos (fqos) != ::DDS::RETCODE_OK)
       {
         cerr << "DomainParticipantFactory set_qos failed." << endl;

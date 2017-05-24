@@ -40,7 +40,7 @@ class DataDurabilityCache;
 #endif
 class FilterEvaluator;
 
-typedef OPENDDS_MAP(DDS::InstanceHandle_t, PublicationInstance*)
+typedef OPENDDS_MAP(DDS::InstanceHandle_t, PublicationInstance_rch)
   PublicationInstanceMapType;
 
 /**
@@ -127,6 +127,7 @@ public:
     DataWriterImpl*  writer,
     /// Max samples kept within each instance
     CORBA::Long      max_samples_per_instance,
+    CORBA::Long history_depth,
     /// Max durable samples sent for each instance
     CORBA::Long      max_durable_per_instance,
     /// The timeout for write.
@@ -313,7 +314,7 @@ public:
   /**
    * @todo remove/document this!
    */
-  PublicationInstance* get_handle_instance(
+  PublicationInstance_rch get_handle_instance(
     DDS::InstanceHandle_t handle);
 
 #ifndef OPENDDS_NO_PERSISTENCE_PROFILE
@@ -444,6 +445,8 @@ private:
   /// The maximum size a container should allow for
   /// an instance sample list
   CORBA::Long                     max_samples_per_instance_;
+
+  CORBA::Long history_depth_;
 
   /// The maximum number of samples from each instance that
   /// can be added to the resend_data_ for durability.

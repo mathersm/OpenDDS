@@ -43,6 +43,7 @@ FilterEvaluator::DeserializedForEval::~DeserializedForEval()
 FilterEvaluator::FilterEvaluator(const char* filter, bool allowOrderBy)
   : extended_grammar_(false)
   , filter_root_(0)
+  , number_parameters_(0)
 {
   const char* out = filter + std::strlen(filter);
   yard::SimpleTextParser parser(filter, out);
@@ -156,23 +157,34 @@ namespace {
   class LiteralInt : public FilterEvaluator::Operand {
   public:
     explicit LiteralInt(AstNode* fnNode)
+      : value_(0, true)
     {
-      OPENDDS_STRING strVal = toString(fnNode);
+      const OPENDDS_STRING strVal = toString(fnNode);
       if (strVal.length() > 2 && strVal[0] == '0'
           && (strVal[1] == 'x' || strVal[1] == 'X')) {
         std::istringstream is(strVal.c_str() + 2);
-        is >> std::hex >> value_;
+        ACE_UINT64 val;
+        is >> std::hex >> val;
+        value_ = Value(val, true);
+      } else if (!strVal.empty() && strVal[0] == '-') {
+        ACE_INT64 val;
+        std::istringstream is(strVal.c_str());
+        is >> val;
+        value_ = Value(val, true);
       } else {
-        value_ = std::atoi(strVal.c_str());
+        ACE_UINT64 val;
+        std::istringstream is(strVal.c_str());
+        is >> val;
+        value_ = Value(val, true);
       }
     }
 
     Value eval(FilterEvaluator::DataForEval&)
     {
-      return Value(value_, true);
+      return value_;
     }
 
-    int value_;
+    Value value_;
   };
 
   class LiteralChar : public FilterEvaluator::Operand {
@@ -229,10 +241,12 @@ namespace {
 
     Value eval(FilterEvaluator::DataForEval& data)
     {
-      return Value(data.params_[param_], true);
+      return Value(data.params_[static_cast<CORBA::ULong>(param_)], true);
     }
 
-    int param_;
+    size_t param() { return param_; }
+
+    size_t param_;
   };
 
   class Comparison : public FilterEvaluator::EvalNode {
@@ -478,7 +492,12 @@ FilterEvaluator::walkOperand(const FilterEvaluator::AstNodeWrapper& node)
   } else if (node->TypeMatches<StrVal>()) {
     return new LiteralString(node);
   } else if (node->TypeMatches<ParamVal>()) {
-    return new Parameter(node);
+    Parameter* retval = new Parameter(node);
+    // Keep track of the highest parameter number
+    if (retval->param() + 1 > number_parameters_) {
+      number_parameters_ = retval->param() + 1;
+    }
+    return retval;
   } else if (node->TypeMatches<CallDef>()) {
     if (arity(node) == 1) {
       return walkOperand(child(node, 0));

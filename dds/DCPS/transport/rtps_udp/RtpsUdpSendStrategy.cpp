@@ -25,11 +25,13 @@ OPENDDS_BEGIN_VERSIONED_NAMESPACE_DECL
 namespace OpenDDS {
 namespace DCPS {
 
-RtpsUdpSendStrategy::RtpsUdpSendStrategy(RtpsUdpDataLink* link)
-  : TransportSendStrategy(0, TransportInst_rch(link->config(), false),
+RtpsUdpSendStrategy::RtpsUdpSendStrategy(RtpsUdpDataLink* link,
+                                         const TransportInst_rch& inst,
+                                         const GuidPrefix_t& local_prefix)
+  : TransportSendStrategy(0, inst,
                           0,  // synch_resource
                           link->transport_priority(),
-                          new NullSynchStrategy),
+                          make_rch<NullSynchStrategy>()),
     link_(link),
     override_dest_(0),
     override_single_dest_(0),
@@ -43,7 +45,7 @@ RtpsUdpSendStrategy::RtpsUdpSendStrategy(RtpsUdpDataLink* link)
   rtps_header_.prefix[3] = 'S';
   rtps_header_.version = OpenDDS::RTPS::PROTOCOLVERSION;
   rtps_header_.vendorId = OpenDDS::RTPS::VENDORID_OPENDDS;
-  std::memcpy(rtps_header_.guidPrefix, link->local_prefix(),
+  std::memcpy(rtps_header_.guidPrefix, local_prefix,
               sizeof(GuidPrefix_t));
   Serializer writer(&rtps_header_mb_);
   // byte order doesn't matter for the RTPS Header
@@ -128,7 +130,7 @@ RtpsUdpSendStrategy::send_rtps_control(ACE_Message_Block& submessages,
   const int num_blocks = mb_to_iov(rtps_header_mb_, iov);
   const ssize_t result = send_single_i(iov, num_blocks, addr);
   if (result < 0) {
-    ACE_DEBUG((LM_ERROR, "(%P|%t) RtpsUdpSendStrategy::send_rtps_control() - "
+    ACE_ERROR((LM_ERROR, "(%P|%t) RtpsUdpSendStrategy::send_rtps_control() - "
       "failed to send RTPS control message\n"));
   }
 
@@ -145,7 +147,7 @@ RtpsUdpSendStrategy::send_rtps_control(ACE_Message_Block& submessages,
   const int num_blocks = mb_to_iov(rtps_header_mb_, iov);
   const ssize_t result = send_multi_i(iov, num_blocks, addrs);
   if (result < 0) {
-    ACE_DEBUG((LM_ERROR, "(%P|%t) RtpsUdpSendStrategy::send_rtps_control() - "
+    ACE_ERROR((LM_ERROR, "(%P|%t) RtpsUdpSendStrategy::send_rtps_control() - "
       "failed to send RTPS control message\n"));
   }
 

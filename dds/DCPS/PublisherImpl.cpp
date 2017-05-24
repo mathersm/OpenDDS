@@ -131,10 +131,8 @@ PublisherImpl::create_datawriter(
       this,
       dw_obj.in());
 
-  if (this->enabled_ == true
-      && qos_.entity_factory.autoenable_created_entities == 1) {
-
-    DDS::ReturnCode_t ret = dw_servant->enable();
+  if ((this->enabled_ == true) && (qos_.entity_factory.autoenable_created_entities)) {
+    const DDS::ReturnCode_t ret = dw_servant->enable();
 
     if (ret != DDS::RETCODE_OK) {
       ACE_ERROR((LM_ERROR,
@@ -390,7 +388,7 @@ PublisherImpl::set_qos(const DDS::PublisherQos & qos)
             ACE_ERROR_RETURN((LM_ERROR,
                 ACE_TEXT("(%P|%t) ")
                 ACE_TEXT("PublisherImpl::set_qos: ")
-                ACE_TEXT("insert id %d to DwIdToQosMap ")
+                ACE_TEXT("insert id %C to DwIdToQosMap ")
                 ACE_TEXT("failed.\n"),
                 OPENDDS_STRING(converter).c_str()), DDS::RETCODE_ERROR);
           }

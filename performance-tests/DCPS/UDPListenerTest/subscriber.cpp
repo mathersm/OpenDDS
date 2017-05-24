@@ -93,7 +93,7 @@ int parse_args (int argc, ACE_TCHAR *argv[])
     }
   }
 
-  // Indicates sucessful parsing of the command line
+  // Indicates successful parsing of the command line
   return 0;
 }
 
@@ -247,6 +247,11 @@ int ACE_TMAIN (int argc, ACE_TCHAR *argv[])
         ACE_ERROR_RETURN ((LM_ERROR,
                           ACE_TEXT("(%P|%t) ERROR: get listener reference failed.\n")),
                           1);
+      }
+      if (!listener_servant) {
+        ACE_ERROR_RETURN((LM_ERROR,
+          ACE_TEXT("%N:%l main()")
+          ACE_TEXT(" ERROR: listener_servant is nil (dynamic_cast failed)!\n")), -1);
       }
 
       ::DDS::DataReader_var  the_dr

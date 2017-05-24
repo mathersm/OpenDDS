@@ -14,6 +14,8 @@
 #include <dds/DCPS/BuiltInTopicUtils.h>
 #include <iostream>
 
+#include "dds/DCPS/StaticIncludes.h"
+
 #include "common.h"
 
 
@@ -128,8 +130,8 @@ int ACE_TMAIN(int argc, ACE_TCHAR *argv[])
       writers_ready = ACE_OS::fopen((temp_file_prefix + pub_ready_filename).c_str(), ACE_TEXT("r"));
     } while (0 == writers_ready);
 
-    ACE_OS::fclose(readers_ready);
-    ACE_OS::fclose(writers_ready);
+    if (readers_ready) ACE_OS::fclose(readers_ready);
+    if (writers_ready) ACE_OS::fclose(writers_ready);
 
     ACE_DEBUG((LM_DEBUG, ACE_TEXT("(%P|%t) %T Publisher is ready\n")));
 
@@ -153,8 +155,8 @@ int ACE_TMAIN(int argc, ACE_TCHAR *argv[])
       writers_completed = ACE_OS::fopen((temp_file_prefix + pub_finished_filename).c_str(), ACE_TEXT("r"));
     } while (0 == writers_completed);
 
-    ACE_OS::fclose(readers_completed);
-    ACE_OS::fclose(writers_completed);
+    if (readers_completed) ACE_OS::fclose(readers_completed);
+    if (writers_completed) ACE_OS::fclose(writers_completed);
 
     //
     // We need to wait for liveliness to go away here.
@@ -169,14 +171,21 @@ int ACE_TMAIN(int argc, ACE_TCHAR *argv[])
     AlertDataReaderListenerImpl* drl_servant =
       dynamic_cast<AlertDataReaderListenerImpl*>(alert_listener.in());
 
-    if (drl_servant->liveliness_changed_count() < 3) {
+    if (!drl_servant)
+    {
+      ACE_ERROR((LM_ERROR,
+        ACE_TEXT("(%P|%t) Get Alert Data Reader Listener Impl failed.\n")));
+      return 1;
+    }
+
+    if (drl_servant->liveliness_changed_count() < 2 ||
+        drl_servant->liveliness_changed_count() > 3) {
       status = 1;
       // Some error condition.
       ACE_ERROR((LM_ERROR,
         ACE_TEXT("(%P|%t) ERROR: subscriber - ")
         ACE_TEXT("test failed expected liveliness change count check.\n")
         ));
-
     }
     else if (!drl_servant->verify_last_liveliness_status()) {
       status = 1;
