@@ -71,7 +71,7 @@ the "configure" script will download it for you.
 Use one of the following versions when building OpenDDS:
 
 * TAO 2.2a patch 12
-* TAO 2.4.3 (DOC Group)
+* TAO 2.4.4 (DOC Group)
 
 Note that the 2.2a release is from OCI and can be obtained
 from http://www.theaceorb.com/.  The DOC Group releases can be obtained from
@@ -100,7 +100,7 @@ Linux family:
 * Fedora Core 6, x86
 * Fedora 24 and 25, x86_64
 * Ubuntu 16.04 LTS, x86_64
-* openSUSE 42.1, and 42.2 , x86_64
+* openSUSE 42.1, and 42.2, x86_64
 
 Windows family:
 * Windows 7 (32-bit, 64-bit)

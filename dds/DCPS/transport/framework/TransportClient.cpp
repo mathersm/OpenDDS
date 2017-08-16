@@ -353,10 +353,14 @@ TransportClient::associate(const AssociationData& data, bool active)
             return true;
           }
 
-          if (res.success_ && !res.link_.is_nil()) {
-
-            use_datalink_i(data.remote_id_, res.link_, guard);
-
+          if (res.success_) {
+            if (res.link_.is_nil()) {
+                // In this case, it may be waiting for the TCP connection to be established.  Just wait without trying other transports.
+                pending_assoc_timer_->schedule_timer(this, iter->second);
+            }
+            else {
+                use_datalink_i(data.remote_id_, res.link_, guard);
+            }
             return true;
           }
         }
@@ -527,11 +531,11 @@ TransportClient::use_datalink_i(const RepoId& remote_id_ref,
                                 const DataLink_rch& link,
                                 Guard& guard)
 {
-  //try to make a local copy of remote_id to use in calls
-  //because the reference could be invalidated if the caller
-  //reference location is deleted (i.e. in stop_accepting_or_connecting
-  //if use_datalink_i was called from passive_connection)
-  //Does changing this from a reference to a local affect anything going forward?
+  // Try to make a local copy of remote_id to use in calls
+  // because the reference could be invalidated if the caller
+  // reference location is deleted (i.e. in stop_accepting_or_connecting
+  // if use_datalink_i was called from passive_connection)
+  // Does changing this from a reference to a local affect anything going forward?
   RepoId remote_id(remote_id_ref);
 
   GuidConverter peerId_conv(remote_id);

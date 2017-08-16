@@ -17,7 +17,7 @@
 #include "Definitions.h"
 #include "DataSampleHeader.h"
 #include "TopicImpl.h"
-#include "Qos_Helper.h"
+#include "Time_Helper.h"
 #include "CoherentChangeControl.h"
 #include "GuidUtils.h"
 #include "scoped_ptr.h"
@@ -184,7 +184,7 @@ private:
   bool need_sequence_repair() const;
 
   /// Lookup the instance handles by the subscription repo ids
-  bool lookup_instance_handles(const ReaderIdSeq&      ids,
+  void lookup_instance_handles(const ReaderIdSeq&      ids,
                                DDS::InstanceHandleSeq& hdls);
   /// The number of chunks for the cached allocator.
   size_t n_chunks_;
@@ -315,9 +315,6 @@ private:
   /// Flag indicates that this datawriter is a builtin topic
   /// datawriter.
   bool is_bit_;
-
-  /// Flag indicates that the init() is called.
-  // bool                       initialized_;
 
   typedef OPENDDS_MAP_CMP(RepoId, SequenceNumber, GUID_tKeyLessThan)
   RepoIdToSequenceMap;

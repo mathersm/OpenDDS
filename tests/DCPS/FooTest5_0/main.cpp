@@ -28,7 +28,7 @@
 
 #include <string>
 
-const long  MY_DOMAIN   = 411;
+const long  MY_DOMAIN   = 111;
 const char* MY_TOPIC    = "foo";
 const char* MY_TYPE     = "foo";
 
@@ -392,6 +392,8 @@ int run_test(int argc, ACE_TCHAR *argv[])
               ACE_DEBUG((LM_DEBUG, "Got expected offered_incompatible_qos"
                 " with TRANSPORTTYPE_QOS_POLICY_ID"
                 " existing with success.\n"));
+              dp->delete_contained_entities ();
+              dpf->delete_participant(dp.in ());
               return 0;
             }
         }
@@ -414,9 +416,15 @@ int run_test(int argc, ACE_TCHAR *argv[])
       const DDS::Duration_t infinite = { DDS::DURATION_INFINITE_SEC,
                                          DDS::DURATION_INFINITE_NSEC };
       DDS::SubscriptionMatchedStatus matched;
+      DDS::ReturnCode_t ret = DDS::RETCODE_OK;
       while (foo_dr->get_subscription_matched_status(matched) ==
              DDS::RETCODE_OK && matched.total_count == 0) {
-        ws->wait(active, infinite);
+        ret = ws->wait(active, infinite);
+        if (ret != DDS::RETCODE_OK) {
+          ACE_ERROR_RETURN((LM_ERROR,
+            ACE_TEXT("(%P|%t) ERROR: waiting for subscription matched failed.\n")),
+            ret);
+        }
       }
       ws->detach_condition(sc);
 
@@ -475,20 +483,17 @@ int run_test(int argc, ACE_TCHAR *argv[])
         test_failed = 1;
       }
 
-
-
       //======== clean up ============
 
-      // Clean up publisher objects
-//      pub->delete_contained_entities() ;
+      ACE_DEBUG ((LM_DEBUG,
+        ACE_TEXT("(%P|%t) Test ready, cleaning up.\n")));
 
+      // Clean up publisher objects
       pub->delete_datawriter(dw.in ());
       dp->delete_publisher(pub.in ());
 
 
       //clean up subscriber objects
-//      sub->delete_contained_entities() ;
-
       sub->delete_datareader(dr.in ());
       dp->delete_subscriber(sub.in ());
 

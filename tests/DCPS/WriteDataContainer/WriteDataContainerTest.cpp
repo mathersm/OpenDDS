@@ -22,7 +22,7 @@ using namespace std;
 using namespace DDS;
 using namespace OpenDDS::DCPS;
 
-const long  MY_DOMAIN   = 411;
+const long  MY_DOMAIN   = 111;
 const char* MY_TOPIC    = "topic_foo";
 const char* MY_TYPE     = "type_foo";
 
@@ -136,7 +136,8 @@ public:
 
   ACE_Recursive_Thread_Mutex& lock_wdc(WriteDataContainer* wdc) { return wdc->lock_; }
 
-  WriteDataContainer* get_test_data_container(::DDS::DataWriterQos dw_qos, Test::SimpleDataWriterImpl* fast_dw)
+  WriteDataContainer* get_test_data_container(::DDS::DataWriterQos const & dw_qos,
+    Test::SimpleDataWriterImpl* fast_dw)
   {
     const bool reliable = dw_qos.reliability.kind == DDS::RELIABLE_RELIABILITY_QOS;
 
@@ -353,7 +354,8 @@ int run_test(int argc, ACE_TCHAR *argv[])
     DDS::DomainParticipantFactory_var dpf =
       TheParticipantFactoryWithArgs(argc, argv);
     TestParticipantImpl* tpi = new TestParticipantImpl();
-    DDS_TEST* test = new DDS_TEST();
+    DDS::DomainParticipant_var participant = tpi;
+    scoped_ptr<DDS_TEST> test(new DDS_TEST);
     ::DDS::DataWriterQos dw_qos;
     test->get_default_datawriter_qos(dw_qos);
 
@@ -862,9 +864,6 @@ int run_test(int argc, ACE_TCHAR *argv[])
           ACE_TEXT("(%P|%t) TestException caught in main.cpp. ")));
         return 1;
       }
-      //======== clean up ============
-      delete test;
-      delete tpi;
     } //xxx dp::Entity::Object::muxtex_refcount_ = 1
   catch (const TestException&)
     {

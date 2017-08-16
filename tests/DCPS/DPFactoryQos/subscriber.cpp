@@ -16,6 +16,10 @@
 #include <dds/DCPS/SubscriberImpl.h>
 #include <dds/DCPS/Qos_Helper.h>
 #include "dds/DCPS/StaticIncludes.h"
+#ifdef ACE_AS_STATIC_LIBS
+#include <dds/DCPS/RTPS/RtpsDiscovery.h>
+#include <dds/DCPS/transport/rtps_udp/RtpsUdp.h>
+#endif
 
 #include <ace/streams.h>
 #include "tests/Utils/ExceptionStreams.h"
@@ -57,7 +61,7 @@ int ACE_TMAIN (int argc, ACE_TCHAR *argv[])
         return 1;
       }
 
-      participant = dpf->create_participant(411,
+      participant = dpf->create_participant(111,
                                             PARTICIPANT_QOS_DEFAULT,
                                             DDS::DomainParticipantListener::_nil(),
                                             ::OpenDDS::DCPS::DEFAULT_STATUS_MASK);

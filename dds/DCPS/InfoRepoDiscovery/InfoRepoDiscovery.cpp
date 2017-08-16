@@ -53,21 +53,11 @@ PortableServer::POA_ptr get_POA(CORBA::ORB_ptr orb)
 
   if (TheServiceParticipant->use_bidir_giop()) {
     while (true) {
-#ifdef CORBA_E_COMPACT
       try {
         return root_poa->find_POA(BIDIR_POA, false /*activate*/);
       } catch (const PortableServer::POA::AdapterNonExistent&) {
         // go ahead and create it...
       }
-#else
-      PortableServer::POAList_var children = root_poa->the_children();
-      for (CORBA::ULong i = 0; i < children->length(); ++i) {
-        if (0 == std::strcmp(CORBA::String_var(children[i]->the_name()).in(),
-                             BIDIR_POA)) {
-          return PortableServer::POA::_duplicate(children[i]);
-        }
-      }
-#endif
       CORBA::PolicyList policies(1);
       policies.length(1);
       CORBA::Any policy;
@@ -291,8 +281,12 @@ InfoRepoDiscovery::bit_config()
     TcpInst_rch tcp_inst = static_rchandle_cast<TcpInst>(inst);
 
     tcp_inst->datalink_release_delay_ = 0;
-    tcp_inst->local_address(bit_transport_port_,
-                            bit_transport_ip_.c_str());
+    if (!bit_transport_ip_.empty()) {
+      tcp_inst->local_address(bit_transport_port_,
+                              bit_transport_ip_.c_str());
+    } else {
+      tcp_inst->local_address_set_port(bit_transport_port_);
+    }
   }
   return bit_config_;
 #else
@@ -955,6 +949,7 @@ InfoRepoDiscovery::OrbRunner::shutdown()
 {
   orb_->shutdown();
   wait();
+  orb_->destroy();
 }
 
 InfoRepoDiscovery::OrbRunner* InfoRepoDiscovery::orb_runner_;
