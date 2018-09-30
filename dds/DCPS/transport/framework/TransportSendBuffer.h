@@ -70,7 +70,7 @@ private:
 /// domain of SequenceNumbers -- for a given SingleSendBuffer object, the
 /// sequence numbers passed to insert() must be generated from the same place.
 class OpenDDS_Dcps_Export SingleSendBuffer
-  : public TransportSendBuffer, public RcObject<ACE_SYNCH_MUTEX> {
+  : public TransportSendBuffer, public RcObject {
 public:
 
   static const size_t UNLIMITED;
@@ -89,6 +89,8 @@ public:
 
   // caller must already have the send strategy lock
   bool resend_i(const SequenceRange& range, DisjointSequence* gaps = 0);
+  bool resend_i(const SequenceRange& range, DisjointSequence* gaps,
+                const RepoId& destination);
 
   void resend_fragments_i(const SequenceNumber& sequence,
                           const DisjointSequence& fragments);
@@ -116,10 +118,8 @@ private:
 
   size_t n_chunks_;
 
-  TransportRetainedElementAllocator retained_allocator_;
   MessageBlockAllocator retained_mb_allocator_;
   DataBlockAllocator retained_db_allocator_;
-  TransportReplacedElementAllocator replaced_allocator_;
   MessageBlockAllocator replaced_mb_allocator_;
   DataBlockAllocator replaced_db_allocator_;
 
@@ -127,6 +127,9 @@ private:
 
   typedef OPENDDS_MAP(SequenceNumber, BufferMap) FragmentMap;
   FragmentMap fragments_;
+
+  typedef OPENDDS_MAP(SequenceNumber, RepoId) DestinationMap;
+  DestinationMap destinations_;
 };
 
 } // namespace DCPS

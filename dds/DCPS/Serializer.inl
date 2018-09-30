@@ -9,6 +9,10 @@
 #include <ace/CDR_Stream.h>
 #include "Serializer.h"
 
+#ifndef OPENDDS_SAFETY_PROFILE
+#include <string>
+#endif
+
 OPENDDS_BEGIN_VERSIONED_NAMESPACE_DECL
 
 namespace OpenDDS {
@@ -210,10 +214,20 @@ Serializer::good_bit() const
   return this->good_bit_;
 }
 
+ACE_INLINE size_t
+Serializer::length() const
+{
+  return this->good_bit_ && this->current_ ? this->current_->total_length() : 0;
+}
+
 ACE_INLINE bool
 Serializer::skip(ACE_CDR::UShort n, int size)
 {
   if (size > 1 && this->alignment_ != ALIGN_NONE) {
+    if (!this->current_) {
+      this->good_bit_ = false;
+      return false;
+    }
     this->align_r(size_t(size) > MAX_ALIGN ? MAX_ALIGN : size_t(size));
   }
   for (size_t len = static_cast<size_t>(n * size); len;) {
@@ -955,6 +969,7 @@ operator>>(Serializer& s, std::string& x)
   char* buf = 0;
   const size_t length = s.read_string(buf);
   x.assign(buf, length);
+  CORBA::string_free(buf);
   return s.good_bit();
 }
 
@@ -965,6 +980,7 @@ operator>>(Serializer& s, std::wstring& x)
   ACE_CDR::WChar* buf = 0;
   const size_t length = s.read_string(buf);
   x.assign(buf, length);
+  CORBA::wstring_free(buf);
   return s.good_bit();
 }
 #endif /* DDS_HAS_WCHAR */

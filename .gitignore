@@ -27,6 +27,7 @@ lib*.dylib
 *.VC.db
 *.VC.opendb
 .vs/
+.vscode/
 
 /setenv.sh
 /setenv.cmd
@@ -34,10 +35,11 @@ lib*.dylib
 /.cproject
 /.project
 /.settings/
-/user_macros.GNU
+/user_macros.GNU*
 /build
 /ipch
 /ACE_wrappers
 /ACE_TAO
 .idea/
 .vs/
+/tags

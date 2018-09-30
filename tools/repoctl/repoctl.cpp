@@ -15,6 +15,7 @@
 
 #include <string>
 #include <iostream>
+#include <cstring>
 
 namespace { // Anonymous namespace for file scope.
 
@@ -46,6 +47,8 @@ usage_and_exit(int value = 0)
             << " Where <target> and <peer> are endpoint specifications" << std::endl
             << " which can include a hostname and port.  If no hostname is specified," << std::endl
             << " the default 'localhost' will be used." << std::endl
+            << " If an endpoint specification contains :// it will be treated as a full IOR" << std::endl
+            << " and not changed to the constructed IOR described below." << std::endl
             << std::endl
             << " A connection will be attempted by constructing an IOR as:" << std::endl
             << std::endl
@@ -164,6 +167,7 @@ Options::Options(int argc, ACE_TCHAR** argv)
       switch (*++arg) {
       case 'h':
         usage_and_exit(-8);
+        break;
 
       case 'v':
         this->verbose_ = true;
@@ -221,12 +225,21 @@ Options::Options(int argc, ACE_TCHAR** argv)
   }
 }
 
+std::string ior(const char* target, const char* key)
+{
+  if (std::strstr(target, "://")) {
+    return target;
+  }
+  std::string iorString("corbaloc:iiop:");
+  return iorString + target + '/' + key;
+}
+
 } // End of anonymous namespace.
 
 int ACE_TMAIN(int argc, ACE_TCHAR** argv)
 {
   int status = 0;
-  const char* exename = "repoctl";
+  std::string exename = "repoctl";
 
   try {
     // Initialize an ORB.
@@ -234,24 +247,21 @@ int ACE_TMAIN(int argc, ACE_TCHAR** argv)
 
     // Grab our information from the command line.
     Options options(argc, argv);
-    exename = ACE_OS::strdup( options.name().c_str());
+    exename = options.name();
 
     OpenDDS::DCPS::DCPSInfo_var ir;
     OpenDDS::Federator::Manager_var target;
     OpenDDS::Federator::Manager_var peer;
 
     if (options.command() == Options::KILL) {
-      // Resolve the ir reference.
-      std::string iorString("corbaloc:iiop:");
-      iorString += options.target();
-      iorString += "/";
-      iorString += OpenDDS::Federator::REPOSITORY_IORTABLE_KEY;
+      std::string iorString = ior(options.target().c_str(),
+                                  OpenDDS::Federator::REPOSITORY_IORTABLE_KEY);
 
       if (options.verbose()) {
         ACE_DEBUG((LM_INFO,
                    ACE_TEXT("(%P|%t) INFO: %C: ")
                    ACE_TEXT("attempting to resolve and connect to repository at: %C.\n"),
-                   exename,
+                   exename.c_str(),
                    iorString.c_str()));
       }
 
@@ -262,23 +272,21 @@ int ACE_TMAIN(int argc, ACE_TCHAR** argv)
       if (CORBA::is_nil(ir.in())) {
         ACE_ERROR((LM_ERROR,
                    ACE_TEXT("(%P|%t) ERROR: %C: could not narrow %C.\n"),
-                   exename,
+                   exename.c_str(),
                    iorString.c_str()));
         return -4;
       }
 
     } else {
       // Resolve the target reference.
-      std::string iorString("corbaloc:iiop:");
-      iorString += options.target();
-      iorString += "/";
-      iorString += OpenDDS::Federator::FEDERATOR_IORTABLE_KEY;
+      std::string iorString = ior(options.target().c_str(),
+                                  OpenDDS::Federator::FEDERATOR_IORTABLE_KEY);
 
       if (options.verbose()) {
         ACE_DEBUG((LM_INFO,
                    ACE_TEXT("(%P|%t) INFO: %C: ")
                    ACE_TEXT("attempting to resolve and connect to repository at: %C.\n"),
-                   exename,
+                   exename.c_str(),
                    iorString.c_str()));
       }
 
@@ -289,7 +297,7 @@ int ACE_TMAIN(int argc, ACE_TCHAR** argv)
       if (CORBA::is_nil(target.in())) {
         ACE_ERROR((LM_ERROR,
                    ACE_TEXT("(%P|%t) ERROR: %C: could not narrow %C.\n"),
-                   exename,
+                   exename.c_str(),
                    iorString.c_str()));
         return -5;
       }
@@ -305,7 +313,7 @@ int ACE_TMAIN(int argc, ACE_TCHAR** argv)
           ACE_DEBUG((LM_INFO,
                      ACE_TEXT("(%P|%t) INFO: %C: ")
                      ACE_TEXT("attempting to resolve and connect to repository at: %C.\n"),
-                     exename,
+                     exename.c_str(),
                      iorString.c_str()));
         }
 
@@ -316,7 +324,7 @@ int ACE_TMAIN(int argc, ACE_TCHAR** argv)
         if (CORBA::is_nil(peer.in())) {
           ACE_ERROR((LM_ERROR,
                      ACE_TEXT("(%P|%t) ERROR: %C: could not narrow %C.\n"),
-                     exename,
+                     exename.c_str(),
                      iorString.c_str()));
           return -6;
         }
@@ -327,7 +335,7 @@ int ACE_TMAIN(int argc, ACE_TCHAR** argv)
     case Options::JOIN: {
       if (options.verbose()) {
         ACE_DEBUG((LM_INFO,
-                   ACE_TEXT("(%P|%t) INFO: %C: federating.\n"), exename));
+                   ACE_TEXT("(%P|%t) INFO: %C: federating.\n"), exename.c_str()));
       }
 
       target->join_federation(peer.in(), options.federationDomain());
@@ -337,7 +345,7 @@ int ACE_TMAIN(int argc, ACE_TCHAR** argv)
     case Options::LEAVE: {
       if (options.verbose()) {
         ACE_DEBUG((LM_INFO,
-                   ACE_TEXT("(%P|%t) INFO: %C: leaving and shutting down.\n"), exename));
+                   ACE_TEXT("(%P|%t) INFO: %C: leaving and shutting down.\n"), exename.c_str()));
       }
 
       target->leave_and_shutdown();
@@ -347,7 +355,7 @@ int ACE_TMAIN(int argc, ACE_TCHAR** argv)
     case Options::SHUTDOWN: {
       if (options.verbose()) {
         ACE_DEBUG((LM_INFO,
-                   ACE_TEXT("(%P|%t) INFO: %C: shutting down.\n"), exename));
+                   ACE_TEXT("(%P|%t) INFO: %C: shutting down.\n"), exename.c_str()));
       }
 
       target->shutdown();
@@ -357,7 +365,7 @@ int ACE_TMAIN(int argc, ACE_TCHAR** argv)
     case Options::KILL: {
       if (options.verbose()) {
         ACE_DEBUG((LM_INFO,
-                   ACE_TEXT("(%P|%t) INFO: %C: shutting down.\n"), exename));
+                   ACE_TEXT("(%P|%t) INFO: %C: shutting down.\n"), exename.c_str()));
       }
 
       ir->shutdown();
@@ -366,7 +374,7 @@ int ACE_TMAIN(int argc, ACE_TCHAR** argv)
 
     default:
       ACE_ERROR((LM_ERROR,
-                 ACE_TEXT("(%P|%t) ERROR: %C: unknown command requested.\n "), exename));
+                 ACE_TEXT("(%P|%t) ERROR: %C: unknown command requested.\n "), exename.c_str()));
       usage_and_exit(-7);
       break;
     }
@@ -381,13 +389,13 @@ int ACE_TMAIN(int argc, ACE_TCHAR** argv)
   } catch (const std::exception& ex) {
     ACE_ERROR((LM_ERROR,
                ACE_TEXT("(%P|%t) ABORT: %C: %C exception caught in main().\n"),
-               ex.what(), exename));
+               ex.what(), exename.c_str()));
     status = -2;
 
   } catch (...) {
     ACE_ERROR((LM_ERROR,
                ACE_TEXT("(%P|%t) ABORT: %C: unspecified exception caught in main() - panic.\n"),
-               exename));
+               exename.c_str()));
     status = -3;
 
   }

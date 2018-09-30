@@ -47,10 +47,6 @@ DCPS_IR_Publication::DCPS_IR_Publication(const OpenDDS::DCPS::RepoId& id,
 
 DCPS_IR_Publication::~DCPS_IR_Publication()
 {
-  if (0 != associations_.size()) {
-    CORBA::Boolean dont_notify_lost = 0;
-    remove_associations(dont_notify_lost);
-  }
 }
 
 int DCPS_IR_Publication::add_associated_subscription(DCPS_IR_Subscription* sub,
@@ -162,10 +158,13 @@ int DCPS_IR_Publication::remove_associated_subscription(DCPS_IR_Subscription* su
     if (participant_->is_alive() && this->participant_->isOwner()) {
       try {
         if (OpenDDS::DCPS::DCPS_debug_level > 0) {
+          OpenDDS::DCPS::RepoIdConverter pub_converter(id_);
+          OpenDDS::DCPS::RepoIdConverter sub_converter(sub->get_id());
           ACE_DEBUG((LM_DEBUG,
                      ACE_TEXT("(%P|%t) DCPS_IR_Publication::remove_associated_subscription:")
-                     ACE_TEXT(" calling pub %d with sub %d\n"),
-                     id_, sub->get_id()));
+                     ACE_TEXT(" calling pub %C with sub %C\n"),
+                     OPENDDS_STRING(pub_converter).c_str(),
+                     OPENDDS_STRING(sub_converter).c_str()));
         }
 
         OpenDDS::DCPS::ReaderIdSeq idSeq(1);

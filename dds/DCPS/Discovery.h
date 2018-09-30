@@ -9,8 +9,9 @@
 #define OPENDDS_DDS_DCPS_DISCOVERY_H
 
 #include "dds/DdsDcpsInfoUtilsC.h"
-#include "RcObject_T.h"
+#include "RcObject.h"
 #include "RcHandle_T.h"
+#include "unique_ptr.h"
 
 #include "dds/DCPS/DataReaderCallbacks.h"
 #include "dds/DCPS/DataWriterCallbacks.h"
@@ -18,6 +19,10 @@
 
 #include "dds/DCPS/PoolAllocator.h"
 #include "dds/DCPS/PoolAllocationBase.h"
+
+#ifdef OPENDDS_SECURITY
+#include "dds/DdsSecurityCoreC.h"
+#endif
 
 #if !defined (ACE_LACKS_PRAGMA_ONCE)
 #pragma once
@@ -45,7 +50,7 @@ class DataReaderImpl;
  * InfoRepo-based discovery and RTPS Discovery.
  *
  */
-class OpenDDS_Dcps_Export Discovery : public RcObject<ACE_SYNCH_MUTEX> {
+class OpenDDS_Dcps_Export Discovery : public RcObject {
 public:
   /// Key type for storing discovery objects.
   /// Probably should just be Discovery::Key
@@ -71,7 +76,9 @@ public:
 
   RepoKey key() const { return this->key_; }
 
-  class OpenDDS_Dcps_Export Config : public PoolAllocationBase {
+  class OpenDDS_Dcps_Export Config
+    : public PoolAllocationBase
+    , public EnableContainerSupportedUniquePtr<Config> {
   public:
     virtual ~Config();
     virtual int discovery_config(ACE_Configuration_Heap& cf) = 0;
@@ -81,9 +88,21 @@ public:
     DDS::DomainId_t domainId,
     const RepoId& participantId) = 0;
 
+  virtual OpenDDS::DCPS::RepoId generate_participant_guid() = 0;
+
   virtual AddDomainStatus add_domain_participant(
     DDS::DomainId_t domain,
     const DDS::DomainParticipantQos& qos) = 0;
+
+#if defined(OPENDDS_SECURITY)
+  virtual OpenDDS::DCPS::AddDomainStatus add_domain_participant_secure(
+    DDS::DomainId_t domain,
+    const DDS::DomainParticipantQos& qos,
+    const OpenDDS::DCPS::RepoId& guid,
+    DDS::Security::IdentityHandle id,
+    DDS::Security::PermissionsHandle perm,
+    DDS::Security::ParticipantCryptoHandle part_crypto) = 0;
+#endif
 
   virtual bool remove_domain_participant(
     DDS::DomainId_t domainId,

@@ -27,8 +27,8 @@
 #endif
 
 #if defined ACE_WIN32 && !defined ACE_HAS_WINCE
-# include <WinSock2.h>
-# include <Iphlpapi.h>
+# include <winsock2.h>
+# include <iphlpapi.h>
 # include "ace/Version.h"
 // older versions of ACE don't link to IPHlpApi.Lib, see acedefaults.mpb
 # if ACE_MAJOR_VERSION == 6 && ACE_MINOR_VERSION == 0 && defined _MSC_VER
@@ -158,6 +158,7 @@ GuidGenerator::interfaceName(const char* iface)
       const sockaddr_dl* sdl =
         reinterpret_cast<const sockaddr_dl*>(&ifr->ifr_addr);
       std::memcpy(node_id_, LLADDR(sdl), sizeof node_id_);
+      found = true;
     }
 
     ptr += sizeof ifr->ifr_name + std::max(sizeof ifr->ifr_addr,

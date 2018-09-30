@@ -42,7 +42,7 @@ PublisherImpl::PublisherImpl(DDS::InstanceHandle_t      handle,
   change_depth_(0),
 #endif
   domain_id_(participant->get_domain_id()),
-  participant_(participant),
+  participant_(*participant),
   suspend_depth_count_(0),
   sequence_number_(),
   aggregation_period_start_(ACE_Time_Value::zero),
@@ -141,7 +141,7 @@ PublisherImpl::create_datawriter(
     return DDS::DataWriter::_nil();
   }
 
-  dw_servant->init(a_topic,
+  dw_servant->init(
       topic_servant,
       dw_qos,
       a_listener,
@@ -153,12 +153,15 @@ PublisherImpl::create_datawriter(
     const DDS::ReturnCode_t ret = dw_servant->enable();
 
     if (ret != DDS::RETCODE_OK) {
-      ACE_ERROR((LM_ERROR,
-          ACE_TEXT("(%P|%t) ERROR: ")
+      ACE_ERROR((LM_WARNING,
+          ACE_TEXT("(%P|%t) WARNING: ")
           ACE_TEXT("PublisherImpl::create_datawriter, ")
           ACE_TEXT("enable failed.\n")));
       return DDS::DataWriter::_nil();
     }
+  } else {
+    ACE_GUARD_RETURN(ACE_Recursive_Thread_Mutex, guard, pi_lock_, 0);
+    writers_not_enabled_.insert(rchandle_from(dw_servant));
   }
 
   return DDS::DataWriter::_duplicate(dw_obj.in());
@@ -168,17 +171,15 @@ DDS::ReturnCode_t
 PublisherImpl::delete_datawriter(DDS::DataWriter_ptr a_datawriter)
 {
   DataWriterImpl* dw_servant = dynamic_cast<DataWriterImpl*>(a_datawriter);
-  if (dw_servant) {
-    // marks entity as deleted and stops future associating
-    dw_servant->prepare_to_delete();
-  }
-
   if (!dw_servant) {
     ACE_ERROR((LM_ERROR,
               "(%P|%t) PublisherImpl::delete_datawriter - dynamic cast to DataWriterImpl failed\n"
     ));
     return DDS::RETCODE_ERROR;
   }
+
+  // marks entity as deleted and stops future associating
+  dw_servant->prepare_to_delete();
 
   {
     DDS::Publisher_var dw_publisher(dw_servant->get_publisher());
@@ -274,12 +275,20 @@ PublisherImpl::delete_datawriter(DDS::DataWriter_ptr a_datawriter)
     dw_servant->remove_all_associations();
     dw_servant->cleanup();
   }
+
+  if (this->monitor_) {
+    this->monitor_->report();
+  }
+
   // not just unregister but remove any pending writes/sends.
   dw_servant->unregister_all();
+
+  RcHandle<DomainParticipantImpl> participant = this->participant_.lock();
+
   Discovery_rch disco = TheServiceParticipant->get_discovery(this->domain_id_);
   if (!disco->remove_publication(
       this->domain_id_,
-      this->participant_->get_id(),
+      participant->get_id(),
       publication_id)) {
     ACE_ERROR_RETURN((LM_ERROR,
         ACE_TEXT("(%P|%t) ERROR: ")
@@ -287,10 +296,8 @@ PublisherImpl::delete_datawriter(DDS::DataWriter_ptr a_datawriter)
         ACE_TEXT("publication not removed from discovery.\n")),
         DDS::RETCODE_ERROR);
   }
-  // Decrease ref count after the servant is removed from the maps.
-  dw_servant->_remove_ref();
 
-  participant_->remove_adjust_liveliness_timers();
+  participant->remove_adjust_liveliness_timers();
 
   return DDS::RETCODE_OK;
 }
@@ -319,7 +326,7 @@ PublisherImpl::lookup_datawriter(const char* topic_name)
     return DDS::DataWriter::_nil();
 
   } else {
-    return DDS::DataWriter::_duplicate(it->second);
+    return DDS::DataWriter::_duplicate(it->second.in());
   }
 }
 
@@ -331,7 +338,7 @@ PublisherImpl::delete_contained_entities()
 
   while (true) {
     PublicationId pub_id = GUID_UNKNOWN;
-    DataWriterImpl* a_datawriter = 0;
+    DataWriterImpl_rch a_datawriter;
 
     {
       ACE_GUARD_RETURN(ACE_Recursive_Thread_Mutex,
@@ -347,7 +354,7 @@ PublisherImpl::delete_contained_entities()
       }
     }
 
-    const DDS::ReturnCode_t ret = delete_datawriter(a_datawriter);
+    const DDS::ReturnCode_t ret = delete_datawriter(a_datawriter.in());
 
     if (ret != DDS::RETCODE_OK) {
       GuidConverter converter(pub_id);
@@ -416,13 +423,16 @@ PublisherImpl::set_qos(const DDS::PublisherQos & qos)
 
       while (iter != idToQosMap.end()) {
         Discovery_rch disco = TheServiceParticipant->get_discovery(this->domain_id_);
-        const bool status
-        = disco->update_publication_qos(
-            participant_->get_domain_id(),
-            participant_->get_id(),
-            iter->first,
-            iter->second,
-            this->qos_);
+        bool status = false;
+
+        RcHandle<DomainParticipantImpl> participant = this->participant_.lock();
+        if (participant)
+          status = disco->update_publication_qos(
+              participant->get_domain_id(),
+              participant->get_id(),
+              iter->first,
+              iter->second,
+              this->qos_);
 
         if (!status) {
           ACE_ERROR_RETURN((LM_ERROR,
@@ -671,14 +681,14 @@ PublisherImpl::wait_for_acknowledgments(
     // Collect writers to request acks
     for (DataWriterMap::iterator it(this->datawriter_map_.begin());
         it != this->datawriter_map_.end(); ++it) {
-      DataWriterImpl* writer = it->second;
+      DataWriterImpl_rch writer = it->second;
       if (writer->qos_.reliability.kind != DDS::RELIABLE_RELIABILITY_QOS)
         continue;
       if (writer->should_ack()) {
         DataWriterImpl::AckToken token = writer->create_ack_token(max_wait);
 
         std::pair<DataWriterAckMap::iterator, bool> pair =
-            ack_writers.insert(DataWriterAckMap::value_type(writer, token));
+            ack_writers.insert(DataWriterAckMap::value_type(writer.in(), token));
 
         if (!pair.second) {
           ACE_ERROR_RETURN((LM_ERROR,
@@ -714,7 +724,7 @@ PublisherImpl::wait_for_acknowledgments(
 DDS::DomainParticipant_ptr
 PublisherImpl::get_participant()
 {
-  return DDS::DomainParticipant::_duplicate(participant_);
+  return participant_.lock()._retn();
 }
 
 DDS::ReturnCode_t
@@ -760,7 +770,8 @@ PublisherImpl::enable()
     return DDS::RETCODE_OK;
   }
 
-  if (this->participant_->is_enabled() == false) {
+  RcHandle<DomainParticipantImpl> participant = this->participant_.lock();
+  if (!participant || participant->is_enabled() == false) {
     return DDS::RETCODE_PRECONDITION_NOT_MET;
   }
 
@@ -769,6 +780,16 @@ PublisherImpl::enable()
   }
 
   this->set_enabled();
+
+  if (qos_.entity_factory.autoenable_created_entities) {
+    ACE_GUARD_RETURN(ACE_Recursive_Thread_Mutex, guard, pi_lock_, DDS::RETCODE_ERROR);
+    DataWriterSet writers;
+    writers_not_enabled_.swap(writers);
+    for (DataWriterSet::iterator it = writers.begin(); it != writers.end(); ++it) {
+      (*it)->enable();
+    }
+  }
+
   return DDS::RETCODE_OK;
 }
 
@@ -784,12 +805,14 @@ PublisherImpl::is_clean() const
 
 DDS::ReturnCode_t
 PublisherImpl::writer_enabled(const char*     topic_name,
-    DataWriterImpl* writer)
+    DataWriterImpl* writer_ptr)
 {
   ACE_GUARD_RETURN(ACE_Recursive_Thread_Mutex,
       guard,
       this->pi_lock_,
       DDS::RETCODE_ERROR);
+  DataWriterImpl_rch writer = rchandle_from(writer_ptr);
+  writers_not_enabled_.erase(writer);
 
   datawriter_map_.insert(DataWriterMap::value_type(topic_name, writer));
 
@@ -807,9 +830,9 @@ PublisherImpl::writer_enabled(const char*     topic_name,
         OPENDDS_STRING(converter).c_str()), DDS::RETCODE_ERROR);
   }
 
-  // Increase ref count when the servant is added to the
-  // datawriter/publication map.
-  writer->_add_ref();
+  if (this->monitor_) {
+    this->monitor_->report();
+  }
 
   return DDS::RETCODE_OK;
 }
@@ -821,8 +844,13 @@ PublisherImpl::listener_for(DDS::StatusKind kind)
   // per 2.1.4.3.1 Listener Access to Plain Communication Status
   // use this entities factory if listener is mask not enabled
   // for this kind.
+  RcHandle<DomainParticipantImpl> participant = this->participant_.lock();
+
+  if (!participant)
+    return 0;
+
   if (CORBA::is_nil(listener_.in()) || (listener_mask_ & kind) == 0) {
-    return participant_->listener_for(kind);
+    return participant->listener_for(kind);
 
   } else {
     return DDS::PublisherListener::_duplicate(listener_.in());
@@ -885,10 +913,10 @@ PublisherImpl::get_publication_ids(PublicationIdVec& pubs)
   }
 }
 
-EntityImpl*
+RcHandle<EntityImpl>
 PublisherImpl::parent() const
 {
-  return this->participant_;
+  return this->participant_.lock();
 }
 
 bool

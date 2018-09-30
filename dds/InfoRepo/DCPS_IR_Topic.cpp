@@ -26,84 +26,30 @@ DCPS_IR_Topic::DCPS_IR_Topic(const OpenDDS::DCPS::RepoId& id,
                              const DDS::TopicQos& qos,
                              DCPS_IR_Domain* domain,
                              DCPS_IR_Participant* creator,
-                             DCPS_IR_Topic_Description* description)
+                             DCPS_IR_Topic_Description* description,
+                             bool isBIT)
   : id_(id),
     qos_(qos),
     domain_(domain),
     participant_(creator),
     description_(description),
     handle_(0),
-    isBIT_(0),
+    isBIT_(isBIT),
     removed_(false)
 {
 }
 
 DCPS_IR_Topic::~DCPS_IR_Topic()
 {
-  // check for remaining publication references
-  if (0 != publicationRefs_.size()) {
-    DCPS_IR_Publication* pub = 0;
-    DCPS_IR_Publication_Set::ITERATOR iter = publicationRefs_.begin();
-    DCPS_IR_Publication_Set::ITERATOR end = publicationRefs_.end();
-
-    OpenDDS::DCPS::RepoIdConverter topic_converter(id_);
-    ACE_ERROR((LM_ERROR,
-               ACE_TEXT("(%P|%t) ERROR: DCPS_IR_Topic::~DCPS_IR_Topic: ")
-               ACE_TEXT("id %C has retained publications.\n"),
-               std::string(topic_converter).c_str()));
-
-    while (iter != end) {
-      pub = *iter;
-      ++iter;
-
-      OpenDDS::DCPS::RepoIdConverter pub_converter(pub->get_id());
-      ACE_ERROR((LM_ERROR,
-                 ACE_TEXT("(%P|%t) ERROR: DCPS_IR_Topic::~DCPS_IR_Topic: ")
-                 ACE_TEXT("topic %C retains publication id %C.\n"),
-                 std::string(topic_converter).c_str(),
-                 std::string(pub_converter).c_str()));
-    }
-  }
-
-  if (0 != subscriptionRefs_.size()) {
-    DCPS_IR_Subscription* sub = 0;
-    DCPS_IR_Subscription_Set::ITERATOR iter = subscriptionRefs_.begin();
-    DCPS_IR_Subscription_Set::ITERATOR end = subscriptionRefs_.end();
-
-    OpenDDS::DCPS::RepoIdConverter topic_converter(id_);
-    ACE_ERROR((LM_ERROR,
-               ACE_TEXT("(%P|%t) ERROR: DCPS_IR_Topic::~DCPS_IR_Topic: ")
-               ACE_TEXT("id %C has retained subscriptions.\n"),
-               std::string(topic_converter).c_str()));
-
-    while (iter != end) {
-      sub = *iter;
-      ++iter;
-
-      OpenDDS::DCPS::RepoIdConverter sub_converter(sub->get_id());
-      ACE_ERROR((LM_ERROR,
-                 ACE_TEXT("(%P|%t) ERROR: DCPS_IR_Topic::~DCPS_IR_Topic: ")
-                 ACE_TEXT("topic %C retains subscription id %C.\n"),
-                 std::string(topic_converter).c_str(),
-                 std::string(sub_converter).c_str()));
-    }
-  }
 }
 
 void DCPS_IR_Topic::release(bool removing)
 {
-  if (removing) {
+  if (removing || this->removed_) {
     this->removed_ = true;
 
     if (publicationRefs_.size() == 0 && subscriptionRefs_.size() == 0) {
       this->domain_->remove_topic_id_mapping(this->id_);
-      delete this;
-    }
-
-  } else if (this->removed_) {
-    if (publicationRefs_.size() == 0 && subscriptionRefs_.size() == 0) {
-      this->domain_->remove_topic_id_mapping(this->id_);
-      delete this;
     }
   }
 }

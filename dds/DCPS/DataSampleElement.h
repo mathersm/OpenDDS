@@ -13,6 +13,7 @@
 #include "dds/DCPS/PoolAllocator.h"
 #include "dds/DCPS/PoolAllocationBase.h"
 #include "dds/DCPS/RcHandle_T.h"
+#include "dds/DCPS/Message_Block_Ptr.h"
 
 class DDS_TEST;
 
@@ -26,13 +27,6 @@ const CORBA::ULong MAX_READERS_PER_ELEM = 5;
 class DataSampleElement;
 typedef Cached_Allocator_With_Overflow<DataSampleElement, ACE_Null_Mutex>
   DataSampleElementAllocator;
-
-typedef Dynamic_Cached_Allocator_With_Overflow<ACE_Thread_Mutex>
-  TransportSendElementAllocator;
-
-class TransportCustomizedElement;
-typedef Dynamic_Cached_Allocator_With_Overflow<ACE_Thread_Mutex>
-  TransportCustomizedElementAllocator;
 
 class TransportSendListener;
 struct PublicationInstance;
@@ -62,9 +56,7 @@ class OpenDDS_Dcps_Export DataSampleElement : public PoolAllocationBase {
 public:
   DataSampleElement(PublicationId                   publication_id,
                     TransportSendListener*          send_listener,
-                    PublicationInstance_rch         handle,
-                    TransportSendElementAllocator*  tse_allocator,
-                    TransportCustomizedElementAllocator* tce_allocator);
+                    PublicationInstance_rch         handle);
 
   DataSampleElement(const DataSampleElement& elem);
   DataSampleElement& operator=(const DataSampleElement& elem);
@@ -77,7 +69,7 @@ public:
   DataSample* get_sample() const;
   DataSample* get_sample();
 
-  void set_sample(DataSample* sample);
+  void set_sample(Message_Block_Ptr sample);
 
   PublicationId get_pub_id() const;
 
@@ -94,10 +86,6 @@ public:
   TransportSendListener* get_send_listener();
 
   PublicationInstance_rch get_handle() const;
-
-  TransportSendElementAllocator* get_transport_send_element_allocator() const;
-
-  TransportCustomizedElementAllocator* get_transport_customized_element_allocator() const;
 
   typedef OPENDDS_MAP(DataLinkIdType, GUIDSeq_var) DataLinkIdTypeGUIDMap;
   DataLinkIdTypeGUIDMap& get_filter_per_link();
@@ -117,7 +105,7 @@ private:
 
   /// Message being sent which includes the DataSampleHeader message block
   /// and DataSample message block.
-  DataSample*            sample_;
+  Message_Block_Ptr      sample_;
 
   /// Publication Id used downstream.
   PublicationId          publication_id_;
@@ -135,12 +123,6 @@ private:
   /// and data sample list.
   /// The client holds this as an InstanceHandle_t.
   PublicationInstance_rch   handle_;
-
-  /// Allocator for the TransportSendElement.
-  TransportSendElementAllocator* transport_send_element_allocator_;
-
-  /// Allocator for TransportCustomizedElement
-  TransportCustomizedElementAllocator* transport_customized_element_allocator_;
 
   //{@
   /// tracking for Content-Filtering data

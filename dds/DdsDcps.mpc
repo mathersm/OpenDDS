@@ -34,6 +34,7 @@ project(OpenDDS_Dcps): core, coverage_optional, \
   Source_Files {
     DCPS
     DCPS/transport/framework
+    DCPS/security/framework
   }
 
   Header_Files {
@@ -41,6 +42,7 @@ project(OpenDDS_Dcps): core, coverage_optional, \
     Versioned_Namespace.h
     DCPS
     DCPS/transport/framework
+    DCPS/security/framework
     DCPS/yard
 
     // Although these files only contain comments since
@@ -66,6 +68,7 @@ project(OpenDDS_Dcps): core, coverage_optional, \
   Template_Files {
     DCPS
     DCPS/transport/framework
+    DCPS/security/framework
   }
 
   InstallData_Files {

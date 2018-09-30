@@ -29,13 +29,10 @@
 #endif
 
 namespace {
-  enum { FLAG_E = 1, FLAG_Q = 2, FLAG_D = 4,
-         FLAG_K_IN_DATA = 8, FLAG_K_IN_FRAG = 4 };
-
   const OpenDDS::RTPS::StatusInfo_t STATUS_INFO_REGISTER = { { 0, 0, 0, 0 } },
-          STATUS_INFO_DISPOSE = { { 0, 0, 0, 1 } },
-          STATUS_INFO_UNREGISTER = { { 0, 0, 0, 2 } },
-          STATUS_INFO_DISPOSE_UNREGISTER = { { 0, 0, 0, 3 } };
+    STATUS_INFO_DISPOSE = { { 0, 0, 0, 1 } },
+    STATUS_INFO_UNREGISTER = { { 0, 0, 0, 2 } },
+    STATUS_INFO_DISPOSE_UNREGISTER = { { 0, 0, 0, 3 } };
 }
 
 OPENDDS_BEGIN_VERSIONED_NAMESPACE_DECL
@@ -113,6 +110,26 @@ RtpsSampleHeader::init(ACE_Message_Block& mb)
   CASE_SMKIND(HEARTBEAT_FRAG, HeartBeatFragSubmessage, hb_frag)
   CASE_SMKIND(DATA, DataSubmessage, data)
   CASE_SMKIND(DATA_FRAG, DataFragSubmessage, data_frag)
+
+#if defined(OPENDDS_SECURITY)
+    // Each submessage type introduced by the Security spec is treated
+    // as an opaque octet sequence at this layer.
+    case SEC_BODY:
+    case SEC_PREFIX:
+    case SEC_POSTFIX:
+    case SRTPS_PREFIX:
+    case SRTPS_POSTFIX: {
+    SecuritySubmessage submessage;
+    if (ser >> submessage) {
+      octetsToNextHeader = submessage.smHeader.submessageLength;
+      submessage_.security_sm(submessage);
+      submessage_._d(kind);
+      valid_ = true;
+    }
+    break;
+    }
+#endif
+
   default:
     {
       SubmessageHeader submessage;
@@ -240,7 +257,7 @@ RtpsSampleHeader::into_received_data_sample(ReceivedDataSample& rds)
           && (rtps.smHeader.flags & FLAG_Q) && !rds.sample_) {
         for (CORBA::ULong i = 0; i < rtps.inlineQos.length(); ++i) {
           if (rtps.inlineQos[i]._d() == PID_KEY_HASH) {
-            rds.sample_ = new ACE_Message_Block(20);
+            rds.sample_.reset(new ACE_Message_Block(20));
             // CDR_BE encapsuation scheme (endianness is not used for key hash)
             rds.sample_->copy("\x00\x00\x00\x00", 4);
             const CORBA::Octet* data = rtps.inlineQos[i].key_hash().value;
@@ -271,7 +288,7 @@ RtpsSampleHeader::into_received_data_sample(ReceivedDataSample& rds)
 
     if (rtps.smHeader.flags & (FLAG_D | FLAG_K_IN_DATA)) {
       // Peek at the byte order from the encapsulation containing the payload.
-      opendds.byte_order_ = rds.sample_->rd_ptr()[1] & FLAG_E;
+      opendds.byte_order_ = payload_byte_order(rds);
     }
 
     break;
@@ -300,6 +317,11 @@ RtpsSampleHeader::into_received_data_sample(ReceivedDataSample& rds)
   }
 
   return true;
+}
+
+bool RtpsSampleHeader::payload_byte_order(const ReceivedDataSample& rds)
+{
+  return rds.sample_->rd_ptr()[1] & RTPS::FLAG_E;
 }
 
 namespace {
@@ -551,7 +573,7 @@ RtpsSampleHeader::populate_inline_qos(
 
 // simple marshaling helpers for RtpsSampleHeader::split()
 namespace {
-  void write(ACE_Message_Block* mb, ACE_CDR::UShort s, bool swap_bytes)
+  void write(const Message_Block_Ptr& mb, ACE_CDR::UShort s, bool swap_bytes)
   {
     const char* ps = reinterpret_cast<const char*>(&s);
     if (swap_bytes) {
@@ -562,7 +584,7 @@ namespace {
     }
   }
 
-  void write(ACE_Message_Block* mb, ACE_CDR::ULong i, bool swap_bytes)
+  void write(const Message_Block_Ptr& mb, ACE_CDR::ULong i, bool swap_bytes)
   {
     const char* pi = reinterpret_cast<const char*>(&i);
     if (swap_bytes) {
@@ -597,7 +619,7 @@ namespace {
 
 SequenceRange
 RtpsSampleHeader::split(const ACE_Message_Block& orig, size_t size,
-                        ACE_Message_Block*& head, ACE_Message_Block*& tail)
+                        Message_Block_Ptr& head, Message_Block_Ptr& tail)
 {
   using namespace RTPS;
   static const SequenceRange unknown_range(SequenceNumber::SEQUENCENUMBER_UNKNOWN(),
@@ -666,7 +688,7 @@ RtpsSampleHeader::split(const ACE_Message_Block& orig, size_t size,
       new_flags |= FLAG_K_IN_FRAG;
     }
   }
-  head = DataSampleHeader::alloc_msgblock(orig, sz, false);
+  head.reset(DataSampleHeader::alloc_msgblock(orig, sz, false));
 
   head->copy(rd, data_offset);
 
@@ -694,7 +716,7 @@ RtpsSampleHeader::split(const ACE_Message_Block& orig, size_t size,
   }
 
   // Create the "tail" message block containing DATA_FRAG with Q=0
-  tail = DataSampleHeader::alloc_msgblock(orig, data_offset + 36, false);
+  tail.reset(DataSampleHeader::alloc_msgblock(orig, data_offset + 36, false));
 
   tail->copy(rd, data_offset);
 
@@ -716,12 +738,12 @@ RtpsSampleHeader::split(const ACE_Message_Block& orig, size_t size,
   write(tail, FRAG_SIZE, swap_bytes);
   write(tail, sample_size, swap_bytes);
 
-  ACE_Message_Block* payload_head = 0;
-  ACE_Message_Block* payload_tail;
+  Message_Block_Ptr payload_head;
+  Message_Block_Ptr payload_tail;
   DataSampleHeader::split_payload(*orig.cont(), frags * FRAG_SIZE,
                                   payload_head, payload_tail);
-  head->cont(payload_head);
-  tail->cont(payload_tail);
+  head->cont(payload_head.release());
+  tail->cont(payload_tail.release());
 
   return SequenceRange(starting_frag + frags - 1,
                        starting_frag + frags + tail_frags - 1);

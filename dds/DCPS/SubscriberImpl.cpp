@@ -49,7 +49,7 @@ SubscriberImpl::SubscriberImpl(DDS::InstanceHandle_t       handle,
   qos_(qos),
   default_datareader_qos_(TheServiceParticipant->initial_DataReaderQos()),
   listener_mask_(mask),
-  participant_(participant),
+  participant_(*participant),
   domain_id_(participant->get_domain_id()),
   raw_latency_buffer_size_(0),
   raw_latency_buffer_type_(DataCollector<double>::KeepOldest),
@@ -114,6 +114,9 @@ SubscriberImpl::create_datareader(
   }
 
   DDS::DataReaderQos dr_qos;
+  RcHandle<DomainParticipantImpl> participant = this->participant_.lock();
+  if (!participant)
+    return DDS::DataReader::_nil();
 
   TopicImpl* topic_servant = dynamic_cast<TopicImpl*>(a_topic_desc);
 
@@ -214,23 +217,27 @@ SubscriberImpl::create_datareader(
   dr_servant->raw_latency_buffer_size() = this->raw_latency_buffer_size_;
   dr_servant->raw_latency_buffer_type() = this->raw_latency_buffer_type_;
 
+
   dr_servant->init(topic_servant,
                    dr_qos,
                    a_listener,
                    mask,
-                   participant_,
+                   participant.in(),
                    this);
 
   if ((this->enabled_ == true) && (qos_.entity_factory.autoenable_created_entities)) {
     const DDS::ReturnCode_t ret = dr_servant->enable();
 
     if (ret != DDS::RETCODE_OK) {
-      ACE_ERROR((LM_ERROR,
-                 ACE_TEXT("(%P|%t) ERROR: ")
+      ACE_ERROR((LM_WARNING,
+                 ACE_TEXT("(%P|%t) WARNING: ")
                  ACE_TEXT("SubscriberImpl::create_datareader, ")
                  ACE_TEXT("enable failed.\n")));
       return DDS::DataReader::_nil();
     }
+  } else {
+    ACE_GUARD_RETURN(ACE_Recursive_Thread_Mutex, guard, si_lock_, 0);
+    readers_not_enabled_.insert(rchandle_from(dr_servant));
   }
 
   // add created data reader to this' data reader container -
@@ -243,7 +250,7 @@ SubscriberImpl::delete_datareader(::DDS::DataReader_ptr a_datareader)
 {
   DBG_ENTRY_LVL("SubscriberImpl", "delete_datareader", 6);
 
-  DataReaderImpl* dr_servant = dynamic_cast<DataReaderImpl*>(a_datareader);
+  DataReaderImpl_rch dr_servant = rchandle_from(dynamic_cast<DataReaderImpl*>(a_datareader));
 
   if (dr_servant) { // for MultiTopic this will be false
     DDS::Subscriber_var dr_subscriber(dr_servant->get_subscriber());
@@ -343,7 +350,7 @@ SubscriberImpl::delete_datareader(::DDS::DataReader_ptr a_datareader)
   RepoId subscription_id = dr_servant->get_subscription_id();
   Discovery_rch disco = TheServiceParticipant->get_discovery(this->domain_id_);
   if (!disco->remove_subscription(this->domain_id_,
-                                  participant_->get_id(),
+                                  this->dp_id_,
                                   subscription_id)) {
     ACE_ERROR_RETURN((LM_ERROR,
                       ACE_TEXT("(%P|%t) ERROR: ")
@@ -356,9 +363,6 @@ SubscriberImpl::delete_datareader(::DDS::DataReader_ptr a_datareader)
   // otherwise some callbacks resulted from remove_association may be lost.
   dr_servant->remove_all_associations();
   dr_servant->cleanup();
-  // Decrease the ref count after the servant is removed
-  // from the datareader map.
-  dr_servant->_remove_ref();
   return DDS::RETCODE_OK;
 }
 
@@ -405,7 +409,7 @@ SubscriberImpl::delete_contained_entities()
     DataReaderMap::iterator itEnd = datareader_map_.end();
 
     for (it = datareader_map_.begin(); it != itEnd; ++it) {
-      drs.push_back(it->second);
+      drs.push_back(it->second.in());
     }
   }
 
@@ -460,7 +464,7 @@ SubscriberImpl::lookup_datareader(
     return DDS::DataReader::_nil();
 
   } else {
-    return DDS::DataReader::_duplicate(it->second);
+    return DDS::DataReader::_duplicate(it->second.in());
   }
 }
 
@@ -510,7 +514,7 @@ SubscriberImpl::get_datareaders(
     if ((*pos)->have_sample_states(sample_states) &&
         (*pos)->have_view_states(view_states) &&
         (*pos)->have_instance_states(instance_states)) {
-      push_back(readers, DDS::DataReader::_duplicate(*pos));
+      push_back(readers, DDS::DataReader::_duplicate(pos->in()));
     }
   }
 
@@ -531,7 +535,7 @@ SubscriberImpl::notify_datareaders()
     if (it->second->have_sample_states(DDS::NOT_READ_SAMPLE_STATE)) {
       DDS::DataReaderListener_var listener = it->second->get_listener();
       if (!CORBA::is_nil (listener)) {
-        listener->on_data_available(it->second);
+        listener->on_data_available(it->second.in());
       }
 
       it->second->set_status_changed_flag(DDS::DATA_AVAILABLE_STATUS, false);
@@ -594,7 +598,7 @@ SubscriberImpl::set_qos(
 
         for (DataReaderMap::iterator iter = datareader_map_.begin();
              iter != endIter; ++iter) {
-          DataReaderImpl* reader = iter->second;
+          DataReaderImpl_rch reader = iter->second;
           reader->set_subscriber_qos (qos);
           DDS::DataReaderQos qos;
           reader->get_qos(qos);
@@ -618,7 +622,7 @@ SubscriberImpl::set_qos(
         Discovery_rch disco = TheServiceParticipant->get_discovery(this->domain_id_);
         const bool status
           = disco->update_subscription_qos(this->domain_id_,
-                                           participant_->get_id(),
+                                           this->dp_id_,
                                            iter->first,
                                            iter->second,
                                            this->qos_);
@@ -746,7 +750,7 @@ SubscriberImpl::end_access()
 DDS::DomainParticipant_ptr
 SubscriberImpl::get_participant()
 {
-  return DDS::DomainParticipant::_duplicate(participant_);
+  return participant_.lock()._retn();
 }
 
 DDS::ReturnCode_t
@@ -796,15 +800,28 @@ SubscriberImpl::enable()
     return DDS::RETCODE_OK;
   }
 
-  if (this->participant_->is_enabled() == false) {
+  RcHandle<DomainParticipantImpl> participant = this->participant_.lock();
+  if (!participant || participant->is_enabled() == false) {
     return DDS::RETCODE_PRECONDITION_NOT_MET;
   }
+
+  dp_id_ = participant->get_id();
 
   if (this->monitor_) {
     this->monitor_->report();
   }
 
   this->set_enabled();
+
+  if (qos_.entity_factory.autoenable_created_entities) {
+    ACE_GUARD_RETURN(ACE_Recursive_Thread_Mutex, guard, si_lock_, DDS::RETCODE_ERROR);
+    DataReaderSet readers;
+    readers_not_enabled_.swap(readers);
+    for (DataReaderSet::iterator it = readers.begin(); it != readers.end(); ++it) {
+      (*it)->enable();
+    }
+  }
+
   return DDS::RETCODE_OK;
 }
 
@@ -827,12 +844,12 @@ SubscriberImpl::data_received(DataReaderImpl* reader)
   ACE_GUARD(ACE_Recursive_Thread_Mutex,
             guard,
             this->si_lock_);
-  datareader_set_.insert(reader);
+  datareader_set_.insert(rchandle_from(reader));
 }
 
 DDS::ReturnCode_t
 SubscriberImpl::reader_enabled(const char*     topic_name,
-                               DataReaderImpl* reader)
+                               DataReaderImpl* reader_ptr)
 {
   if (DCPS_debug_level >= 4) {
     ACE_DEBUG((LM_DEBUG,
@@ -841,11 +858,11 @@ SubscriberImpl::reader_enabled(const char*     topic_name,
                topic_name));
   }
 
-  this->datareader_map_.insert(DataReaderMap::value_type(topic_name, reader));
+  ACE_GUARD_RETURN(ACE_Recursive_Thread_Mutex, guard, si_lock_, DDS::RETCODE_ERROR);
+  DataReaderImpl_rch reader = rchandle_from(reader_ptr);
+  readers_not_enabled_.erase(reader);
 
-  // Increase the ref count when the servant is referenced
-  // by the datareader map.
-  reader->_add_ref();
+  this->datareader_map_.insert(DataReaderMap::value_type(topic_name, reader));
 
   if (this->monitor_) {
     this->monitor_->report();
@@ -868,7 +885,7 @@ void
 SubscriberImpl::remove_from_datareader_set(DataReaderImpl* reader)
 {
   ACE_GUARD(ACE_Recursive_Thread_Mutex, guard, si_lock_);
-  datareader_set_.erase(reader);
+  datareader_set_.erase(rchandle_from(reader));
 }
 #endif
 
@@ -878,8 +895,12 @@ SubscriberImpl::listener_for(::DDS::StatusKind kind)
   // per 2.1.4.3.1 Listener Access to Plain Communication Status
   // use this entities factory if listener is mask not enabled
   // for this kind.
+  RcHandle<DomainParticipantImpl> participant = this->participant_.lock();
+  if (! participant)
+    return 0;
+
   if (CORBA::is_nil(listener_.in()) || (listener_mask_ & kind) == 0) {
-    return participant_->listener_for(kind);
+    return participant->listener_for(kind);
 
   } else {
     return DDS::SubscriberListener::_duplicate(listener_.in());
@@ -984,10 +1005,10 @@ SubscriberImpl::coherent_change_received (RepoId&         publisher_id,
 }
 #endif
 
-EntityImpl*
+RcHandle<EntityImpl>
 SubscriberImpl::parent() const
 {
-  return this->participant_;
+  return this->participant_.lock();
 }
 
 bool

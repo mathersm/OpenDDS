@@ -208,6 +208,8 @@ Manager::pushImage(const DImage& image)
   SeqGuard<UWActor> writer_guard;
   SeqGuard<UWActor>::Seq& writers = writer_guard.seq();
 
+  ContentSubscriptionInfo csi;
+
   for (DImage::ReaderSeq::const_iterator iter = image.actors.begin();
        iter != image.actors.end(); iter++) {
     const DActor& actor = *iter;
@@ -237,13 +239,11 @@ Manager::pushImage(const DImage& image)
       dr_qos_seq.push_back(reader_qos);
       read_cdr >> *reader_qos;
 
-      ContentSubscriptionInfo* csi = 0;
-      ACE_NEW_NORETURN(csi, ContentSubscriptionInfo);
-      csi->filterClassName = actor.contentSubscriptionProfile.filterClassName.c_str();
-      csi->filterExpr = actor.contentSubscriptionProfile.filterExpr.c_str();
+      csi.filterClassName = actor.contentSubscriptionProfile.filterClassName.c_str();
+      csi.filterExpr = actor.contentSubscriptionProfile.filterExpr.c_str();
       TAO_InputCDR csp_cdr(actor.contentSubscriptionProfile.exprParams.second,
                            actor.contentSubscriptionProfile.exprParams.first);
-      csp_cdr >> csi->exprParams;
+      csp_cdr >> csi.exprParams;
 
       URActor* reader;
       ACE_NEW_NORETURN(reader
@@ -251,7 +251,7 @@ Manager::pushImage(const DImage& image)
                                  , actor.topicId, actor.participantId
                                  , actor.type, actor.callback.c_str()
                                  , *sub_qos, *reader_qos
-                                 , *trans, *csi));
+                                 , *trans, csi));
       readers.push_back(reader);
       u_image.actors.push_back(reader);
 
@@ -268,8 +268,6 @@ Manager::pushImage(const DImage& image)
       dw_qos_seq.push_back(writer_qos);
       write_cdr >> *writer_qos;
 
-      ContentSubscriptionInfo csi; //writers have no info
-
       UWActor* writer;
       ACE_NEW_NORETURN(writer
                        , UWActor(actor.domainId, actor.actorId
@@ -285,6 +283,8 @@ Manager::pushImage(const DImage& image)
                  "actor type.\n"));
     }
   }
+
+  u_image.lastPartId = image.lastPartId;
 
   info_->receive_image(u_image);
 }
@@ -398,7 +398,17 @@ Manager::add(const DActor& actor)
   }
 }
 
+void Manager::updateLastPartId(PartIdType partId)
+{
+  for (Updaters::iterator iter = updaters_.begin();
+       iter != updaters_.end();
+       iter++) {
+    (*iter)->updateLastPartId(partId);
+  }
+}
+
 } // namespace Update
+
 
 int
 UpdateManagerSvc_Loader::init()

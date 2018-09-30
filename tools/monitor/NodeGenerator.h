@@ -5,7 +5,11 @@
 * See: http://www.opendds.org/license.html
 */
 
-#include <QtGui/QGraphicsScene>
+#if !defined (ACE_LACKS_PRAGMA_ONCE)
+#pragma once
+#endif /* ACE_LACKS_PRAGMA_ONCE */
+
+#include <QtWidgets/QGraphicsScene>
 #include <string>
 
 #include "TreeNode.h"

@@ -544,12 +544,20 @@ sub process {
     return;
   }
 
+  if (defined $ENV{DCPSDebugLevel}) {
+    $self->{dcps_debug_level} = $ENV{DCPSDebugLevel};
+  }
+
   if ($params !~ /-DCPSDebugLevel / && $self->{dcps_debug_level}) {
     my $debug = " -DCPSDebugLevel $self->{dcps_debug_level}";
     if ($params !~ /-ORBVerboseLogging /) {
       $debug .= " -ORBVerboseLogging 1";
     }
     $params .= $debug;
+  }
+
+  if (defined $ENV{DCPSTransportDebugLevel}) {
+    $self->{dcps_transport_debug_level} = $ENV{DCPSTransportDebugLevel};
   }
 
   if ($params !~ /-DCPSTransportDebugLevel / &&
@@ -734,7 +742,7 @@ sub stop_processes {
 
   $self->_info("TestFramework::stop_processes\n");
 
-  my $subsequent_wait = $timed_wait + $self->{wait_after_first_proc};
+  my $subsequent_wait = $self->{wait_after_first_proc};
 
   while (scalar(@{$self->{processes}->{order}}) > 0) {
     if (!defined($name)) {

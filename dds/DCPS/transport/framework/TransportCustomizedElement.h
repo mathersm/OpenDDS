@@ -10,6 +10,7 @@
 
 #include "dds/DCPS/dcps_export.h"
 #include "TransportQueueElement.h"
+#include "dds/DCPS/Message_Block_Ptr.h"
 
 OPENDDS_BEGIN_VERSIONED_NAMESPACE_DECL
 
@@ -22,15 +23,14 @@ class OpenDDS_Dcps_Export TransportCustomizedElement
   : public TransportQueueElement {
 
 public:
-  static TransportCustomizedElement* alloc(TransportQueueElement* orig,
-                                           bool fragment = false,
-                                           ACE_Allocator* allocator = 0);
+  TransportCustomizedElement(TransportQueueElement* orig,
+                             bool fragment);
 
   virtual RepoId publication_id() const;
   void set_publication_id(const RepoId& id);
 
   virtual const ACE_Message_Block* msg() const;
-  void set_msg(ACE_Message_Block* m);
+  void set_msg(Message_Block_Ptr m);
 
   virtual const ACE_Message_Block* msg_payload() const;
 
@@ -50,19 +50,15 @@ protected:
 
   void set_fragment() { fragment_ = true; }
 
-  TransportCustomizedElement(TransportQueueElement* orig,
-                             bool fragment,
-                             ACE_Allocator* allocator);
+
   virtual ~TransportCustomizedElement();
 
-  ACE_Allocator* allocator() { return allocator_; }
 
 private:
   RepoId subscription_id() const;
 
   TransportQueueElement* orig_;
-  ACE_Message_Block* msg_;
-  ACE_Allocator* allocator_;
+  Message_Block_Ptr msg_;
   RepoId publication_id_;
   bool fragment_, exclusive_;
 };

@@ -34,6 +34,8 @@
 #include "Recorder.h"
 #include "Replayer.h"
 
+#include "dds/DCPS/security/framework/SecurityConfig_rch.h"
+
 #include "ace/Null_Mutex.h"
 #include "ace/Condition_Thread_Mutex.h"
 #include "ace/Recursive_Thread_Mutex.h"
@@ -92,10 +94,10 @@ public:
   typedef OPENDDS_SET(Publisher_Pair) PublisherSet;
 
   class OpenDDS_Dcps_Export RepoIdSequence {
-public:
-    explicit RepoIdSequence(RepoId& base);
+  public:
+    explicit RepoIdSequence(const RepoId& base);
     RepoId next();
-private:
+  private:
     RepoId base_;          // will be combined with serial to produce next
     long serial_;          // will be incremented each time
     GuidBuilder builder_;  // used to modify base
@@ -128,11 +130,9 @@ private:
 
   DomainParticipantImpl(DomainParticipantFactoryImpl *     factory,
                         const DDS::DomainId_t&             domain_id,
-                        const RepoId&                      dp_id,
                         const DDS::DomainParticipantQos &  qos,
                         DDS::DomainParticipantListener_ptr a_listener,
-                        const DDS::StatusMask &            mask,
-                        bool                               federated = false);
+                        const DDS::StatusMask &            mask);
 
   virtual ~DomainParticipantImpl();
 
@@ -369,6 +369,15 @@ private:
   void add_adjust_liveliness_timers(DataWriterImpl* writer);
   void remove_adjust_liveliness_timers();
 
+#if defined(OPENDDS_SECURITY)
+  void set_security_config(const Security::SecurityConfig_rch& config);
+
+  DDS::Security::ParticipantCryptoHandle crypto_handle() const
+  {
+    return part_crypto_handle_;
+  }
+#endif
+
 private:
 
   bool validate_publisher_qos(DDS::PublisherQos & publisher_qos);
@@ -421,8 +430,18 @@ private:
   /// The StatusKind bit mask indicates which status condition change
   /// can be notified by the listener of this entity.
   DDS::StatusMask listener_mask_;
+
+  #if defined(OPENDDS_SECURITY)
+  /// This participant id handle given by authentication.
+  DDS::Security::IdentityHandle id_handle_;
+  /// This participant permissions handle given by access constrol.
+  DDS::Security::PermissionsHandle perm_handle_;
+  /// This participant crypto handle given by crypto
+  DDS::Security::ParticipantCryptoHandle part_crypto_handle_;
+  #endif
+
   /// The id of the domain that creates this participant.
-  DDS::DomainId_t domain_id_;
+  const DDS::DomainId_t domain_id_;
   /// This participant id given by discovery.
   RepoId dp_id_;
 
@@ -488,6 +507,10 @@ private:
 
   RecorderSet recorders_;
   ReplayerSet replayers_;
+
+#if defined(OPENDDS_SECURITY)
+  Security::SecurityConfig_rch security_config_;
+#endif
 
   /// Protect the recorders collection.
   ACE_Recursive_Thread_Mutex recorders_protector_;

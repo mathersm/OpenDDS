@@ -1,0 +1,27 @@
+project(OpenDDS_Security): dcpslib, dcps_rtps, openssl, ace_xml_utils, install, dds_versioning_idl_defaults {
+  idlflags += -Wb,export_macro=DdsSecurity_Export -Wb,export_include=DdsSecurity_Export.h -SS
+  dcps_ts_flags += -Wb,export_macro=DdsSecurity_Export -Wb,export_include=DdsSecurity_Export.h
+  requires += no_opendds_safety_profile
+  avoids += no_opendds_security
+  dynamicflags = DDSSECURITY_BUILD_DLL
+
+  IDL_Files {
+    CryptoBuiltIn.idl
+  }
+
+  TypeSupport_Files {
+    CryptoBuiltIn.idl
+  }
+
+  Source_Files {
+    .
+    SSL
+    Authentication
+    AccessControl
+  }
+
+  specific {
+    install_dir = dds/DCPS/security
+  }
+
+}

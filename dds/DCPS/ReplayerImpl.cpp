@@ -121,8 +121,6 @@ ReplayerImpl::cleanup()
 
     // release our Topic_var
     topic_objref_ = DDS::Topic::_nil();
-    topic_servant_->remove_entity_ref();
-    topic_servant_->_remove_ref();
     topic_servant_ = 0;
 
   }
@@ -157,17 +155,12 @@ ReplayerImpl::init(
   DBG_ENTRY_LVL("ReplayerImpl","init",6);
   topic_objref_ = DDS::Topic::_duplicate(topic);
   topic_servant_ = topic_servant;
-  topic_servant_->_add_ref();
-  topic_servant_->add_entity_ref();
   topic_name_    = topic_servant_->get_name();
   topic_id_      = topic_servant_->get_id();
   type_name_     = topic_servant_->get_type_name();
 
 #if !defined (DDS_HAS_MINIMUM_BIT)
-  is_bit_ = ACE_OS::strcmp(topic_name_.in(), BUILT_IN_PARTICIPANT_TOPIC) == 0
-            || ACE_OS::strcmp(topic_name_.in(), BUILT_IN_TOPIC_TOPIC) == 0
-            || ACE_OS::strcmp(topic_name_.in(), BUILT_IN_SUBSCRIPTION_TOPIC) == 0
-            || ACE_OS::strcmp(topic_name_.in(), BUILT_IN_PUBLICATION_TOPIC) == 0;
+  is_bit_ = topicIsBIT(topic_name_.in(), type_name_.in());
 #endif   // !defined (DDS_HAS_MINIMUM_BIT)
 
   qos_ = qos;
@@ -328,10 +321,6 @@ ReplayerImpl::enable()
 
   sample_list_element_allocator_.reset(new DataSampleElementAllocator(2 * n_chunks_));
 
-  transport_send_element_allocator_.reset(new TransportSendElementAllocator(2 * n_chunks_,
-                                                       sizeof(TransportSendElement)));
-  transport_customized_element_allocator_.reset(new TransportCustomizedElementAllocator(2 * n_chunks_,
-                                                             sizeof(TransportCustomizedElement)));
 
   if (DCPS_debug_level >= 2) {
     ACE_DEBUG((LM_DEBUG,
@@ -891,7 +880,7 @@ ReplayerImpl::data_delivered(const DataSampleElement* sample)
 }
 
 void
-ReplayerImpl::control_delivered(ACE_Message_Block* sample)
+ReplayerImpl::control_delivered(const Message_Block_Ptr& sample)
 {
   ACE_UNUSED_ARG(sample);
 }
@@ -915,7 +904,7 @@ ReplayerImpl::data_dropped(const DataSampleElement* sample,
 }
 
 void
-ReplayerImpl::control_dropped(ACE_Message_Block* sample,
+ReplayerImpl::control_dropped(const Message_Block_Ptr& sample,
                               bool /* dropped_by_transport */)
 {
   ACE_UNUSED_ARG(sample);
@@ -945,10 +934,6 @@ ReplayerImpl::notify_publication_lost(const DDS::InstanceHandleSeq& handles)
   ACE_UNUSED_ARG(handles);
 }
 
-void
-ReplayerImpl::notify_connection_deleted(const RepoId&)
-{
-}
 
 void
 ReplayerImpl::retrieve_inline_qos_data(TransportSendListener::InlineQosData& qos_data) const
@@ -988,21 +973,20 @@ ReplayerImpl::write (const RawDataSample*   samples,
           sizeof(DataSampleElement))),
       DataSampleElement(publication_id_,
                             this,
-                            PublicationInstance_rch(),
-                            transport_send_element_allocator_.get(),
-                            transport_customized_element_allocator_.get()),
+                            PublicationInstance_rch()),
       DDS::RETCODE_ERROR);
 
     element->get_header().byte_order_ = samples[i].sample_byte_order_;
     element->get_header().publication_id_ = this->publication_id_;
     list.enqueue_tail(element);
-    DataSample* temp;
-    DDS::ReturnCode_t ret = create_sample_data_message(samples[i].sample_->duplicate(),
+    Message_Block_Ptr temp;
+    Message_Block_Ptr sample(samples[i].sample_->duplicate());
+    DDS::ReturnCode_t ret = create_sample_data_message(move(sample),
                                                        element->get_header(),
                                                        temp,
                                                        samples[i].source_timestamp_,
                                                        false);
-    element->set_sample(temp);
+    element->set_sample(move(temp));
     if (reader_ih_ptr) {
       element->set_num_subs(1);
       element->set_sub_id(0, repo_id);
@@ -1040,9 +1024,9 @@ ReplayerImpl::write(const RawDataSample& sample)
 }
 
 DDS::ReturnCode_t
-ReplayerImpl::create_sample_data_message(DataSample*         data,
+ReplayerImpl::create_sample_data_message(Message_Block_Ptr   data,
                                          DataSampleHeader&   header_data,
-                                         ACE_Message_Block*& message,
+                                         Message_Block_Ptr&  message,
                                          const DDS::Time_t&  source_timestamp,
                                          bool                content_filter)
 {
@@ -1072,13 +1056,13 @@ ReplayerImpl::create_sample_data_message(DataSample*         data,
   // header_data.publication_id_ = publication_id_;
   // header_data.publisher_id_ = this->publisher_servant_->publisher_id_;
   size_t max_marshaled_size = header_data.max_marshaled_size();
-
-  ACE_NEW_MALLOC_RETURN(message,
+  ACE_Message_Block* tmp;
+  ACE_NEW_MALLOC_RETURN(tmp,
                         static_cast<ACE_Message_Block*>(
                           mb_allocator_->malloc(sizeof(ACE_Message_Block))),
                         ACE_Message_Block(max_marshaled_size,
                                           ACE_Message_Block::MB_DATA,
-                                          data,   //cont
+                                          data.release(),   //cont
                                           0,   //data
                                           header_allocator_.get(),   //alloc_strategy
                                           0,   //locking_strategy
@@ -1088,7 +1072,7 @@ ReplayerImpl::create_sample_data_message(DataSample*         data,
                                           db_allocator_.get(),
                                           mb_allocator_.get()),
                         DDS::RETCODE_ERROR);
-
+  message.reset(tmp);
   *message << header_data;
   return DDS::RETCODE_OK;
 }
@@ -1109,7 +1093,7 @@ ReplayerImpl::lookup_instance_handles(const ReaderIdSeq&       ids,
     }
 
     ACE_DEBUG((LM_DEBUG,
-               ACE_TEXT("(%P|%t) DataWriterImpl::lookup_instance_handles: ")
+               ACE_TEXT("(%P|%t) ReplayerImpl::lookup_instance_handles: ")
                ACE_TEXT("searching for handles for reader Ids: %C.\n"),
                buffer.c_str()));
   }

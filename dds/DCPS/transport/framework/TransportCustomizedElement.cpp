@@ -22,9 +22,6 @@ namespace DCPS {
 TransportCustomizedElement::~TransportCustomizedElement()
 {
   DBG_ENTRY_LVL("TransportCustomizedElement", "~TransportCustomizedElement", 6);
-  if (msg_) {
-    msg_->release();
-  }
 }
 
 void
@@ -36,11 +33,8 @@ TransportCustomizedElement::release_element(bool dropped_by_transport)
     decided = orig_;
   }
 
-  if (allocator_) {
-    OPENDDS_DES_FREE_THIS(allocator_->free, TransportCustomizedElement);
-  } else {
-    delete this;
-  }
+  delete this;
+
   if (decided) {
     decided->decision_made(dropped_by_transport);
   }
@@ -72,14 +66,14 @@ const ACE_Message_Block*
 TransportCustomizedElement::msg() const
 {
   DBG_ENTRY_LVL("TransportCustomizedElement", "msg", 6);
-  return msg_;
+  return msg_.get();
 }
 
 void
-TransportCustomizedElement::set_msg(ACE_Message_Block* m)
+TransportCustomizedElement::set_msg(Message_Block_Ptr m)
 {
   DBG_ENTRY_LVL("TransportCustomizedElement", "set_msg", 6);
-  msg_ = m;
+  msg_.reset(m.release());
 }
 
 const ACE_Message_Block*

@@ -83,6 +83,20 @@ public:
     std::for_each(children_.begin(), children_.end(), deleteChild);
   }
 
+  virtual bool has_non_key_fields(const MetaStruct& meta) const
+  {
+    for (
+      OPENDDS_VECTOR(EvalNode*)::const_iterator i = children_.begin();
+      i != children_.end(); ++i
+    ) {
+      EvalNode* child = *i;
+      if (child->has_non_key_fields(meta)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   virtual Value eval(DataForEval& data) = 0;
 
 private:
@@ -106,14 +120,6 @@ FilterEvaluator::DeserializedForEval::lookup(const char* field) const
   return meta_.getValue(deserialized_, field);
 }
 
-namespace {
-  struct AMB_Releaser {
-    explicit AMB_Releaser(ACE_Message_Block* mb) : mb_(mb) {}
-    ~AMB_Releaser() { mb_->release(); }
-    ACE_Message_Block* mb_;
-  };
-}
-
 Value
 FilterEvaluator::SerializedForEval::lookup(const char* field) const
 {
@@ -121,9 +127,8 @@ FilterEvaluator::SerializedForEval::lookup(const char* field) const
   if (iter != cache_.end()) {
     return iter->second;
   }
-  ACE_Message_Block* const mb = serialized_->duplicate();
-  AMB_Releaser release(mb);
-  Serializer ser(mb, swap_,
+  Message_Block_Ptr mb (serialized_->duplicate());
+  Serializer ser(mb.get(), swap_,
                  cdr_ ? Serializer::ALIGN_CDR : Serializer::ALIGN_NONE);
   if (cdr_) {
     ser.skip(4); // CDR encapsulation header
@@ -138,17 +143,41 @@ FilterEvaluator::~FilterEvaluator()
   delete filter_root_;
 }
 
+bool FilterEvaluator::has_non_key_fields(const MetaStruct& meta) const
+{
+  for (
+    OPENDDS_VECTOR(OPENDDS_STRING)::const_iterator i = order_bys_.begin();
+    i != order_bys_.end(); ++i
+  ) {
+    if (!meta.isDcpsKey(i->c_str())) {
+      return true;
+    }
+  }
+
+  if (filter_root_->has_non_key_fields(meta)) {
+    return true;
+  }
+
+  return false;
+}
+
 namespace {
 
   class FieldLookup : public FilterEvaluator::Operand {
   public:
     explicit FieldLookup(AstNode* fnNode)
       : fieldName_(toString(fnNode))
-    {}
+    {
+    }
 
     Value eval(FilterEvaluator::DataForEval& data)
     {
       return data.lookup(fieldName_.c_str());
+    }
+
+    bool has_non_key_fields(const MetaStruct& meta) const
+    {
+      return !meta.isDcpsKey(fieldName_.c_str());
     }
 
     OPENDDS_STRING fieldName_;
@@ -362,9 +391,9 @@ namespace {
       switch (op_) {
       case OP_MOD:
         {
-          if (children_.size () != 2) {
+          if (children_.size() != 2) {
             std::stringstream ss;
-            ss << MOD << " expects 2 arguments, given " << 2;
+            ss << MOD << " expects 2 arguments, given " << children_.size();
             throw std::runtime_error(ss.str ());
           }
           Value left = children_[0]->eval(data);

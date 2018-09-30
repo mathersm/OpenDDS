@@ -63,7 +63,7 @@ public:
   {
     switch (sample.header_.message_id_) {
     case SAMPLE_DATA: {
-      Serializer ser(sample.sample_,
+      Serializer ser(sample.sample_.get(),
                      sample.header_.byte_order_ != ACE_CDR_BYTE_ORDER,
                      Serializer::ALIGN_CDR);
       bool ok = true;
@@ -122,7 +122,7 @@ public:
     case DISPOSE_INSTANCE:
     case UNREGISTER_INSTANCE:
     case DISPOSE_UNREGISTER_INSTANCE: {
-      OpenDDS::DCPS::Serializer ser(sample.sample_,
+      OpenDDS::DCPS::Serializer ser(sample.sample_.get(),
                                     sample.header_.byte_order_ != ACE_CDR_BYTE_ORDER,
                                     OpenDDS::DCPS::Serializer::ALIGN_CDR);
       bool ok = true;
@@ -167,7 +167,6 @@ public:
   void notify_subscription_disconnected(const WriterIdSeq&) {}
   void notify_subscription_reconnected(const WriterIdSeq&) {}
   void notify_subscription_lost(const WriterIdSeq&) {}
-  void notify_connection_deleted(const RepoId&) {}
   void remove_associations(const WriterIdSeq&, bool) {}
 
   void _add_ref() {}
@@ -187,7 +186,7 @@ public:
   using TransportClient::disassociate;
 
   bool done_;
-  const RepoId& sub_id_;
+  const RepoId sub_id_;
   RepoId pub_id_;
   SequenceNumber seq_;
   int control_msg_count_;
@@ -198,7 +197,8 @@ int
 ACE_TMAIN(int argc, ACE_TCHAR* argv[])
 {
   try {
-    TheParticipantFactoryWithArgs(argc, argv);
+    ::DDS::DomainParticipantFactory_var dpf =
+      TheParticipantFactoryWithArgs(argc, argv);
 
     std::cerr << "STARTING MAIN IN SUBSCRIBER\n";
     ACE_TString host;

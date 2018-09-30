@@ -32,22 +32,6 @@
 #include <algorithm>
 #include <sstream>
 
-namespace { // Anonymous namespace for predicate functor definitions.
-
-/// obj( description) == true if description.topic_ == topic;
-class IsTheTopic {
-public:
-  IsTheTopic(const char* topic) : topic_(topic) { }
-
-  bool operator()(DCPS_IR_Topic_Description* description) {
-    return (0 == ACE_OS::strcmp(this->topic_, description->get_name()));
-  }
-
-private:
-  const char* topic_;
-};
-
-} // End of anonymous namespace.
 
 OPENDDS_BEGIN_VERSIONED_NAMESPACE_DECL
 
@@ -75,14 +59,14 @@ DCPS_IR_Domain::participant(const OpenDDS::DCPS::RepoId& id) const
   = this->participants_.find(id);
 
   if (where != this->participants_.end()) {
-    return where->second;
+    return where->second.in();
 
   } else {
     return 0;
   }
 }
 
-int DCPS_IR_Domain::add_participant(DCPS_IR_Participant* participant)
+int DCPS_IR_Domain::add_participant(DCPS_IR_Participant_rch participant)
 {
   OpenDDS::DCPS::RepoId participantId = participant->get_id();
   OpenDDS::DCPS::RepoIdConverter converter(participantId);
@@ -95,7 +79,7 @@ int DCPS_IR_Domain::add_participant(DCPS_IR_Participant* participant)
       DCPS_IR_Participant_Map::value_type(participantId, participant));
 
     // Publish the BIT information
-    publish_participant_bit(participant);
+    publish_participant_bit(participant.in());
 
     if (OpenDDS::DCPS::DCPS_debug_level > 0) {
       ACE_DEBUG((LM_DEBUG,
@@ -104,7 +88,7 @@ int DCPS_IR_Domain::add_participant(DCPS_IR_Participant* participant)
                  ACE_TEXT("at 0x%x.\n"),
                  std::string(converter).c_str(),
                  id_,
-                 participant));
+                 participant.in()));
     }
 
   } else {
@@ -130,7 +114,7 @@ int DCPS_IR_Domain::remove_participant(const OpenDDS::DCPS::RepoId& participantI
 
   if (where != this->participants_.end()) {
     // Extract the participant from the map.
-    DCPS_IR_Participant* participant = where->second;
+    DCPS_IR_Participant_rch participant = where->second;
 
     // make sure the participant has cleaned up all publications,
     // subscriptions, and any topic references
@@ -145,12 +129,11 @@ int DCPS_IR_Domain::remove_participant(const OpenDDS::DCPS::RepoId& participantI
                  ACE_TEXT("(%P|%t) DCPS_IR_Domain::remove_participant: ")
                  ACE_TEXT("removed participant %C at 0x%x from domain %d.\n"),
                  std::string(converter).c_str(),
-                 participant,
+                 participant.in(),
                  id_));
     }
 
-    dispose_participant_bit(participant);
-    delete participant;
+    dispose_participant_bit(participant.get());
     return 0;
 
   } else {
@@ -172,14 +155,14 @@ OpenDDS::DCPS::TopicStatus DCPS_IR_Domain::add_topic(OpenDDS::DCPS::RepoId_out t
 {
   topicId = OpenDDS::DCPS::GUID_UNKNOWN;
 
-  OpenDDS::DCPS::RepoId topic_id = participantPtr->get_next_topic_id();
-  OpenDDS::DCPS::TopicStatus status = add_topic_i(topic_id, topicName
+  bool isBIT = OpenDDS::DCPS::topicIsBIT(topicName, dataTypeName);
+  OpenDDS::DCPS::RepoId new_topic_id = participantPtr->get_next_topic_id(isBIT);
+  OpenDDS::DCPS::TopicStatus status = add_topic_i(new_topic_id, topicName
                                                   , dataTypeName
-                                                  , qos, participantPtr);
+                                                  , qos, participantPtr, isBIT);
 
   if (status == OpenDDS::DCPS::CREATED) {
-
-    topicId = topic_id;
+    topicId = new_topic_id;
   }
 
   return status;
@@ -193,9 +176,10 @@ DCPS_IR_Domain::force_add_topic(const OpenDDS::DCPS::RepoId& topicId,
                                 DCPS_IR_Participant* participantPtr)
 {
   OpenDDS::DCPS::RepoId topic_id = topicId;
+  bool isBIT = OpenDDS::DCPS::topicIsBIT(topicName, dataTypeName);
   OpenDDS::DCPS::TopicStatus status = add_topic_i(topic_id, topicName
                                                   , dataTypeName
-                                                  , qos, participantPtr);
+                                                  , qos, participantPtr, isBIT);
 
   return status;
 }
@@ -204,7 +188,8 @@ OpenDDS::DCPS::TopicStatus DCPS_IR_Domain::add_topic_i(OpenDDS::DCPS::RepoId& to
                                                        const char * topicName,
                                                        const char * dataTypeName,
                                                        const DDS::TopicQos & qos,
-                                                       DCPS_IR_Participant* participantPtr)
+                                                       DCPS_IR_Participant* participantPtr,
+                                                       bool isBIT)
 {
   DCPS_IR_Topic_Description* description;
   int descriptionLookup = find_topic_description(topicName, dataTypeName, description);
@@ -214,19 +199,16 @@ OpenDDS::DCPS::TopicStatus DCPS_IR_Domain::add_topic_i(OpenDDS::DCPS::RepoId& to
     return OpenDDS::DCPS::CONFLICTING_TYPENAME;
 
   } else if (-1 == descriptionLookup) {
-    ACE_NEW_RETURN(description,
+    using namespace OpenDDS::DCPS;
+    unique_ptr<DCPS_IR_Topic_Description> desc( new
                    DCPS_IR_Topic_Description(
                      this,
                      topicName,
-                     dataTypeName),
-                   OpenDDS::DCPS::NOT_FOUND);
-
-    int descriptionAddition = add_topic_description(description);
+                     dataTypeName));
+    description = desc.get();
+    int descriptionAddition = add_topic_description(move(desc));
 
     if (0 != descriptionAddition) {
-      // unable to add the topic
-      delete description;
-      description = 0;
       topicId = OpenDDS::DCPS::GUID_UNKNOWN;
 
       if (2 == descriptionAddition) {
@@ -238,21 +220,20 @@ OpenDDS::DCPS::TopicStatus DCPS_IR_Domain::add_topic_i(OpenDDS::DCPS::RepoId& to
     }
   }
 
-  DCPS_IR_Topic* topic;
-  ACE_NEW_RETURN(topic,
+  OpenDDS::DCPS::unique_ptr<DCPS_IR_Topic> topic( new
                  DCPS_IR_Topic(
                    topicId,
                    qos,
                    this,
                    participantPtr,
-                   description),
-                 OpenDDS::DCPS::NOT_FOUND);
+                   description,
+                   isBIT));
 
   OpenDDS::DCPS::TopicStatus topicStatus = OpenDDS::DCPS::NOT_FOUND;
 
-  switch (description->add_topic(topic)) {
+  switch (description->add_topic(topic.get())) {
   case 0: {
-    switch (participantPtr->add_topic_reference(topic)) {
+    switch (participantPtr->add_topic_reference(topic.get())) {
     case 0: {
       if (OpenDDS::DCPS::DCPS_debug_level > 0) {
         OpenDDS::DCPS::RepoIdConverter converter(topicId);
@@ -262,16 +243,17 @@ OpenDDS::DCPS::TopicStatus DCPS_IR_Domain::add_topic_i(OpenDDS::DCPS::RepoId& to
                    ACE_TEXT("at 0x%x.\n"),
                    this->id_,
                    std::string(converter).c_str(),
-                   topic));
+                   topic.get()));
       }
 
       topicStatus = OpenDDS::DCPS::CREATED;
 
-      // Keep a reference to easily locate the topic by id.
-      this->idToTopicMap_[ topicId] = topic;
-
       // Publish the BIT information
-      publish_topic_bit(topic);
+      publish_topic_bit(topic.get());
+
+      // Keep a reference to easily locate the topic by id.
+      this->idToTopicMap_[topicId] = move(topic);
+
     }
     break;
 
@@ -284,13 +266,12 @@ OpenDDS::DCPS::TopicStatus DCPS_IR_Domain::add_topic_i(OpenDDS::DCPS::RepoId& to
                    ACE_TEXT("Domain %d declined to add duplicate topic %C at 0x%x.\n"),
                    this->id_,
                    std::string(converter).c_str(),
-                   topic));
+                   topic.get()));
       }
 
       topicStatus = OpenDDS::DCPS::NOT_FOUND;
       topicId = OpenDDS::DCPS::GUID_UNKNOWN;
-      description->remove_topic(topic);
-      delete topic;
+      description->remove_topic(topic.get());
       break;
 
     case -1: {
@@ -300,11 +281,10 @@ OpenDDS::DCPS::TopicStatus DCPS_IR_Domain::add_topic_i(OpenDDS::DCPS::RepoId& to
                  ACE_TEXT("Domain %d failed to add topic %C at 0x%x.\n"),
                  this->id_,
                  std::string(converter).c_str(),
-                 topic));
+                 topic.get()));
       topicStatus = OpenDDS::DCPS::NOT_FOUND;
       topicId = OpenDDS::DCPS::GUID_UNKNOWN;
-      description->remove_topic(topic);
-      delete topic;
+      description->remove_topic(topic.get());
     }
     break;
     }
@@ -317,24 +297,22 @@ OpenDDS::DCPS::TopicStatus DCPS_IR_Domain::add_topic_i(OpenDDS::DCPS::RepoId& to
       OpenDDS::DCPS::RepoIdConverter converter(topicId);
       ACE_DEBUG((LM_DEBUG, ACE_TEXT("(%P|%t) WARNING: DCPS_IR_Domain::add_topic ")
                  ACE_TEXT("Unable to add topic 0x%x id %C to Topic Description\n"),
-                 topic,
+                 topic.get(),
                  std::string(converter).c_str()));
     }
 
     topicStatus = OpenDDS::DCPS::NOT_FOUND;
     topicId = OpenDDS::DCPS::GUID_UNKNOWN;
-    delete topic;
     break;
 
   case -1: {
     OpenDDS::DCPS::RepoIdConverter converter(topicId);
     ACE_ERROR((LM_ERROR, ACE_TEXT("(%P|%t) ERROR: DCPS_IR_Domain::add_topic ")
                ACE_TEXT("Unable to add topic 0x%x id %C to Topic Description\n"),
-               topic,
+               topic.get(),
                std::string(converter).c_str()));
     topicStatus = OpenDDS::DCPS::NOT_FOUND;
     topicId = OpenDDS::DCPS::GUID_UNKNOWN;
-    delete topic;
   }
   break;
   }
@@ -345,16 +323,12 @@ OpenDDS::DCPS::TopicStatus DCPS_IR_Domain::add_topic_i(OpenDDS::DCPS::RepoId& to
 OpenDDS::DCPS::TopicStatus
 DCPS_IR_Domain::find_topic(const char* topicName, DCPS_IR_Topic*& topic)
 {
-  IsTheTopic isTheTopic(topicName);
   DCPS_IR_Topic_Description_Set::iterator which
-  = std::find_if(
-      this->topicDescriptions_.begin(),
-      this->topicDescriptions_.end(),
-      isTheTopic);
+  = this->topicDescriptions_.find(topicName);
 
   if (which != this->topicDescriptions_.end()) {
     // Extract the topic from the description.
-    topic = (*which)->get_first_topic();
+    topic = which->second->get_first_topic();
 
     if (OpenDDS::DCPS::DCPS_debug_level > 0) {
       OpenDDS::DCPS::RepoId topicId = topic->get_id();
@@ -383,7 +357,7 @@ DCPS_IR_Domain::find_topic(const OpenDDS::DCPS::RepoId& id)
     return 0;
   }
 
-  return location->second;
+  return location->second.get();
 }
 
 OpenDDS::DCPS::TopicStatus DCPS_IR_Domain::remove_topic(DCPS_IR_Participant* part,
@@ -410,9 +384,6 @@ OpenDDS::DCPS::TopicStatus DCPS_IR_Domain::remove_topic(DCPS_IR_Participant* par
                  description->get_dataTypeName(),
                  id_));
 
-    } else {
-      delete description;
-      description = 0;
     }
   }
 
@@ -443,15 +414,11 @@ DCPS_IR_Domain::find_topic_description(
   const char* dataTypeName,
   DCPS_IR_Topic_Description*& desc)
 {
-  IsTheTopic isTheTopic(name);
   DCPS_IR_Topic_Description_Set::iterator which
-  = std::find_if(
-      this->topicDescriptions_.begin(),
-      this->topicDescriptions_.end(),
-      isTheTopic);
+  = this->topicDescriptions_.find(name);
 
   if (which != this->topicDescriptions_.end()) {
-    if (0 == ACE_OS::strcmp(dataTypeName, (*which)->get_dataTypeName())) {
+    if (0 == ACE_OS::strcmp(dataTypeName, which->second->get_dataTypeName())) {
       if (OpenDDS::DCPS::DCPS_debug_level > 0) {
         ACE_DEBUG((LM_DEBUG,
                    ACE_TEXT("(%P|%t) DCPS_IR_Domain::find_topic_description: ")
@@ -461,7 +428,7 @@ DCPS_IR_Domain::find_topic_description(
                    id_));
       }
 
-      desc = *which;
+      desc = which->second.get();
       return 0;
 
     } else {
@@ -472,8 +439,8 @@ DCPS_IR_Domain::find_topic_description(
                    ACE_TEXT("located topic description %C/%C instead in domain %d.\n"),
                    name,
                    dataTypeName,
-                   (*which)->get_name(),
-                   (*which)->get_dataTypeName(),
+                   which->second->get_name(),
+                   which->second->get_dataTypeName(),
                    id_));
       }
 
@@ -488,12 +455,12 @@ DCPS_IR_Domain::find_topic_description(
 }
 
 #if defined (DDS_HAS_MINIMUM_BIT)
-int DCPS_IR_Domain::init_built_in_topics(bool /* federated */)
+int DCPS_IR_Domain::init_built_in_topics(bool /* federated */, bool /*persistent*/)
 {
   return 1;
 }
 #else
-int DCPS_IR_Domain::init_built_in_topics(bool federated)
+int DCPS_IR_Domain::init_built_in_topics(bool federated, bool persistent)
 {
   // Indicates that BIT subscriber and datareaders should not be created.
   TheTransientKludge->enable();
@@ -525,7 +492,7 @@ int DCPS_IR_Domain::init_built_in_topics(bool federated)
     }
 
 
-    int transportResult = init_built_in_topics_transport();
+    int transportResult = init_built_in_topics_transport(persistent);
 
     if (0 != transportResult) {
       return transportResult;
@@ -544,7 +511,7 @@ int DCPS_IR_Domain::init_built_in_topics(bool federated)
     }
 
   } catch (const CORBA::Exception& ex) {
-    ex._tao_print_exception("ERROR: Exception caught in main.cpp:");
+    ex._tao_print_exception("ERROR: Exception caught in DCPS_IR_Domain::init_built_in-topics()");
     return 1;
   }
 
@@ -831,7 +798,7 @@ int DCPS_IR_Domain::init_built_in_topics_datawriters(bool federated)
 }
 #endif // defined (DDS_HAS_MINIMUM_BIT)
 
-int DCPS_IR_Domain::init_built_in_topics_transport()
+int DCPS_IR_Domain::init_built_in_topics_transport(bool persistent)
 {
 #if !defined (DDS_HAS_MINIMUM_BIT)
 
@@ -854,6 +821,14 @@ int DCPS_IR_Domain::init_built_in_topics_transport()
                         ACE_TEXT("Nil Publisher from ")
                         ACE_TEXT("DCPS_IR_Domain::init_built_in_topics.\n")),
                        1);
+    }
+
+    // If persistence is active, do not have remote readers autodispose data
+    if (persistent) {
+      DDS::DataWriterQos qos;
+      bitPublisher_->get_default_datawriter_qos(qos);
+      qos.writer_data_lifecycle.autodispose_unregistered_instances = false;
+      bitPublisher_->set_default_datawriter_qos(qos);
     }
 
     // Attach the Publisher with the TransportImpl.
@@ -900,22 +875,24 @@ int DCPS_IR_Domain::cleanup_built_in_topics()
 #endif // !defined (DDS_HAS_MINIMUM_BIT)
 }
 
-int DCPS_IR_Domain::add_topic_description(DCPS_IR_Topic_Description*& desc)
+int DCPS_IR_Domain::add_topic_description(OpenDDS::DCPS::unique_ptr<DCPS_IR_Topic_Description> desc)
 {
+  using OpenDDS::DCPS::move;
   DCPS_IR_Topic_Description* discard = 0;
+  DCPS_IR_Topic_Description* desc_ptr = desc.get();
 
   switch (this->find_topic_description(
             desc->get_name(),
             desc->get_dataTypeName(),
             discard)) {
   case -1:
-    this->topicDescriptions_.insert(desc);
+    this->topicDescriptions_[desc_ptr->get_name()] = move(desc);
 
     if (OpenDDS::DCPS::DCPS_debug_level > 0) {
       ACE_DEBUG((LM_DEBUG,
                  ACE_TEXT("(%P|%t) DCPS_IR_Domain::add_topic_description: ")
                  ACE_TEXT("added Topic Description 0x%x in domain %d.\n"),
-                 desc,
+                 desc_ptr,
                  id_));
     }
 
@@ -925,7 +902,7 @@ int DCPS_IR_Domain::add_topic_description(DCPS_IR_Topic_Description*& desc)
     ACE_DEBUG((LM_NOTICE,
                ACE_TEXT("(%P|%t) NOTICE: DCPS_IR_Domain::add_topic_description: ")
                ACE_TEXT("attempt to add existing Topic Description 0x%x to domain %d.\n"),
-               desc,
+               desc_ptr,
                id_));
     return 1;
 
@@ -933,7 +910,7 @@ int DCPS_IR_Domain::add_topic_description(DCPS_IR_Topic_Description*& desc)
     ACE_DEBUG((LM_NOTICE,
                ACE_TEXT("(%P|%t) NOTICE: DCPS_IR_Domain::add_topic_description: ")
                ACE_TEXT("attempt to add incompatible Topic Description 0x%x to domain %d.\n"),
-               desc,
+               desc_ptr,
                id_));
     return 2;
 
@@ -941,20 +918,18 @@ int DCPS_IR_Domain::add_topic_description(DCPS_IR_Topic_Description*& desc)
     ACE_ERROR((LM_ERROR,
                ACE_TEXT("(%P|%t) ERROR: DCPS_IR_Domain::add_topic_description: ")
                ACE_TEXT("unknown error adding Topic Description 0x%x to domain %d.\n"),
-               desc,
+               desc_ptr,
                id_));
     return 2;
   }
 }
 
-int DCPS_IR_Domain::remove_topic_description(DCPS_IR_Topic_Description*& desc)
+int DCPS_IR_Domain::remove_topic_description(DCPS_IR_Topic_Description* desc)
 {
   DCPS_IR_Topic_Description_Set::iterator where
-  = this->topicDescriptions_.find(desc);
+  = this->topicDescriptions_.find(desc->get_name());
 
   if (where != this->topicDescriptions_.end()) {
-    /// @TODO: Is this a leak?  Who owns the contained description?
-    // delete where->second;
     this->topicDescriptions_.erase(where);
     return 0;
 
@@ -968,7 +943,7 @@ int DCPS_IR_Domain::remove_topic_description(DCPS_IR_Topic_Description*& desc)
   }
 }
 
-void DCPS_IR_Domain::add_dead_participant(DCPS_IR_Participant* participant)
+void DCPS_IR_Domain::add_dead_participant(DCPS_IR_Participant_rch participant)
 {
   deadParticipants_.insert(participant);
 }
@@ -976,8 +951,8 @@ void DCPS_IR_Domain::add_dead_participant(DCPS_IR_Participant* participant)
 void DCPS_IR_Domain::remove_dead_participants()
 {
   if (0 < deadParticipants_.size()) {
-    DCPS_IR_Participant* dead = 0;
-    DCPS_IR_Participant_Set::ITERATOR iter = deadParticipants_.begin();
+    DCPS_IR_Participant_rch dead;
+    DCPS_IR_Participant_Set::iterator iter = deadParticipants_.begin();
 
     // repeat end() due to the value possibly changing from additional dead
     // participants during notifications
@@ -989,9 +964,9 @@ void DCPS_IR_Domain::remove_dead_participants()
       ACE_ERROR((LM_ERROR,
                  ACE_TEXT("(%P|%t) ERROR: DCPS_IR_Domain::remove_dead_participants () ")
                  ACE_TEXT("Removing dead participant 0x%x id %C\n"),
-                 dead,
+                 dead.in(),
                  std::string(converter).c_str()));
-      deadParticipants_.remove(dead);
+      deadParticipants_.erase(dead);
 
       dead->set_alive(0);
 
@@ -1035,38 +1010,31 @@ void DCPS_IR_Domain::publish_participant_bit(DCPS_IR_Participant* participant)
 {
 #if !defined (DDS_HAS_MINIMUM_BIT)
 
-  if (useBIT_) {
-    if (!participant->is_bit()) {
-      try {
-        const DDS::DomainParticipantQos* participantQos = participant->get_qos();
+  if (useBIT_ && !participant->isBitPublisher()) {
+    try {
+      const DDS::DomainParticipantQos* participantQos = participant->get_qos();
 
-        DDS::ParticipantBuiltinTopicData data;
-        get_BuiltinTopicKey(data.key, participant->get_id());
-        data.user_data = participantQos->user_data;
+      DDS::ParticipantBuiltinTopicData data;
+      get_BuiltinTopicKey(data.key, participant->get_id());
+      data.user_data = participantQos->user_data;
 
-        DDS::InstanceHandle_t handle
-        = bitParticipantDataWriter_->register_instance(data);
+      DDS::InstanceHandle_t handle
+      = bitParticipantDataWriter_->register_instance(data);
 
-        participant->set_handle(handle);
+      participant->set_handle(handle);
 
-        if (OpenDDS::DCPS::DCPS_debug_level > 0) {
-          ACE_DEBUG((LM_DEBUG,
-                     "(%P|%t) DCPS_IR_Domain::publish_participant_bit: [ %d, 0x%x, 0x%x], handle %d.\n",
-                     data.key.value[0], data.key.value[1], data.key.value[2], handle));
-        }
-
-        bitParticipantDataWriter_->write(data,
-                                         handle);
-
-      } catch (const CORBA::Exception& ex) {
-        ex._tao_print_exception(
-          "(%P|%t) ERROR: Exception caught in DCPS_IR_Domain::publish_participant_bit:");
+      if (OpenDDS::DCPS::DCPS_debug_level > 0) {
+        ACE_DEBUG((LM_DEBUG,
+                   "(%P|%t) DCPS_IR_Domain::publish_participant_bit: [ %d, 0x%x, 0x%x], handle %d.\n",
+                   data.key.value[0], data.key.value[1], data.key.value[2], handle));
       }
 
-    } else {
-      participant->set_bit_status(1);
-    }
+      bitParticipantDataWriter_->write(data, handle);
 
+    } catch (const CORBA::Exception& ex) {
+      ex._tao_print_exception(
+        "(%P|%t) ERROR: Exception caught in DCPS_IR_Domain::publish_participant_bit:");
+    }
   }
 
 #else
@@ -1081,22 +1049,17 @@ void DCPS_IR_Domain::publish_topic_bit(DCPS_IR_Topic* topic)
   if (useBIT_) {
     DCPS_IR_Topic_Description* desc =
       topic->get_topic_description();
-    const char* dataTypeName = desc->get_dataTypeName();
+    const char* name = desc->get_name();
+    const char* type = desc->get_dataTypeName();
 
-    bool isNotBIT =
-      ACE_OS::strcmp(dataTypeName, OpenDDS::DCPS::BUILT_IN_PARTICIPANT_TOPIC_TYPE) &&
-      ACE_OS::strcmp(dataTypeName, OpenDDS::DCPS::BUILT_IN_TOPIC_TOPIC_TYPE) &&
-      ACE_OS::strcmp(dataTypeName, OpenDDS::DCPS::BUILT_IN_SUBSCRIPTION_TOPIC_TYPE) &&
-      ACE_OS::strcmp(dataTypeName, OpenDDS::DCPS::BUILT_IN_PUBLICATION_TOPIC_TYPE);
-
-    if (isNotBIT) {
+    if (!OpenDDS::DCPS::topicIsBIT(name, type)) {
       try {
         const DDS::TopicQos* topicQos = topic->get_topic_qos();
 
         DDS::TopicBuiltinTopicData data;
         get_BuiltinTopicKey(data.key, topic->get_id());
-        data.name = desc->get_name();
-        data.type_name = desc->get_dataTypeName();
+        data.name = name;
+        data.type_name = type;
         data.durability = topicQos->durability;
         data.durability_service = topicQos->durability_service;
         data.deadline = topicQos->deadline;
@@ -1147,16 +1110,10 @@ void DCPS_IR_Domain::publish_subscription_bit(DCPS_IR_Subscription* subscription
   if (useBIT_) {
     DCPS_IR_Topic_Description* desc =
       subscription->get_topic_description();
+    const char* name = desc->get_name();
+    const char* type = desc->get_dataTypeName();
 
-    const char* dataTypeName = desc->get_dataTypeName();
-
-    bool isNotBIT =
-      ACE_OS::strcmp(dataTypeName, OpenDDS::DCPS::BUILT_IN_PARTICIPANT_TOPIC_TYPE) &&
-      ACE_OS::strcmp(dataTypeName, OpenDDS::DCPS::BUILT_IN_TOPIC_TOPIC_TYPE) &&
-      ACE_OS::strcmp(dataTypeName, OpenDDS::DCPS::BUILT_IN_SUBSCRIPTION_TOPIC_TYPE) &&
-      ACE_OS::strcmp(dataTypeName, OpenDDS::DCPS::BUILT_IN_PUBLICATION_TOPIC_TYPE);
-
-    if (isNotBIT) {
+    if (!OpenDDS::DCPS::topicIsBIT(name, type)) {
       try {
         const DDS::DataReaderQos* readerQos = subscription->get_datareader_qos();
         const DDS::SubscriberQos* publisherQos = subscription->get_subscriber_qos();
@@ -1168,8 +1125,8 @@ void DCPS_IR_Domain::publish_subscription_bit(DCPS_IR_Subscription* subscription
         get_BuiltinTopicKey(data.key, subscription->get_id());
         get_BuiltinTopicKey(data.participant_key,
                             subscription->get_participant_id());
-        data.topic_name = desc->get_name();
-        data.type_name = desc->get_dataTypeName();
+        data.topic_name = name;
+        data.type_name = type;
         data.durability = readerQos->durability;
         data.deadline = readerQos->deadline;
         data.latency_budget = readerQos->latency_budget;
@@ -1536,7 +1493,7 @@ std::string DCPS_IR_Domain::dump_to_string(const std::string& prefix, int depth)
        tdi != topicDescriptions_.end();
        tdi++)
   {
-    str += (*tdi)->dump_to_string(prefix, depth+1);
+    str += tdi->second->dump_to_string(prefix, depth+1);
   }
 #endif // !defined (OPENDDS_INFOREPO_REDUCED_FOOTPRINT)
   return str;

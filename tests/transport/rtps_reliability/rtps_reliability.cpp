@@ -68,7 +68,13 @@ struct SimpleTC: TransportClient {
 
 struct SimpleDataReader: SimpleTC, TransportReceiveListener {
   explicit SimpleDataReader(const RepoId& sub_id)
-    : SimpleTC(sub_id), have_frag_(false) {}
+    : SimpleTC(sub_id), have_frag_(false) {
+
+      // The reference count is explicited incremented to avoid been explcitly deleted
+      // via the RcHandle<TransportClient> because the object is always been created
+      // on the stack.
+      RcObject::_add_ref();
+    }
 
   void data_received(const ReceivedDataSample& sample)
   {
@@ -93,11 +99,7 @@ struct SimpleDataReader: SimpleTC, TransportReceiveListener {
   void notify_subscription_disconnected(const WriterIdSeq&) {}
   void notify_subscription_reconnected(const WriterIdSeq&) {}
   void notify_subscription_lost(const WriterIdSeq&) {}
-  void notify_connection_deleted(const RepoId&) {}
   void remove_associations(const WriterIdSeq&, bool) {}
-
-  void _add_ref() {}
-  void _remove_ref() {}
 
   DisjointSequence recvd_;
   bool have_frag_;
@@ -119,8 +121,7 @@ public:
 struct SimpleDataWriter: SimpleTC, TransportSendListener {
   explicit SimpleDataWriter(const RepoId& pub_id)
     : SimpleTC(pub_id)
-    , alloc_(2, sizeof(TransportSendElementAllocator))
-    , dsle_(pub_id, this, OpenDDS::DCPS::PublicationInstance_rch(), &alloc_, 0)
+    , dsle_(pub_id, this, OpenDDS::DCPS::PublicationInstance_rch())
   {
     DDS_TEST::list_set(dsle_, list_);
     dsle_.get_header().message_id_ = SAMPLE_DATA;
@@ -132,12 +133,22 @@ struct SimpleDataWriter: SimpleTC, TransportSendListener {
     Serializer ser(&payload_, host_is_bigendian, Serializer::ALIGN_CDR);
     ser << encap;
     ser << data;
+
+    // The reference count is explicited incremented to avoid been explcitly deleted
+    // via the RcHandle<TransportClient> because the object is always been created
+    // on the stack.
+    RcObject::_add_ref();
+  }
+
+  ~SimpleDataWriter()
+  {
   }
 
   void send_data(const SequenceNumber& seq)
   {
     dsle_.get_header().sequence_ = seq;
-    dsle_.set_sample(new ACE_Message_Block(DataSampleHeader::max_marshaled_size()));
+    Message_Block_Ptr sample(new ACE_Message_Block(DataSampleHeader::max_marshaled_size()));
+    dsle_.set_sample(move(sample));
     *dsle_.get_sample() << dsle_.get_header();
     dsle_.get_sample()->cont(payload_.duplicate());
     ACE_DEBUG((LM_INFO, "sending with seq#: %q\n", seq.getValue()));
@@ -152,19 +163,14 @@ struct SimpleDataWriter: SimpleTC, TransportSendListener {
   void notify_publication_disconnected(const ReaderIdSeq&) {}
   void notify_publication_reconnected(const ReaderIdSeq&) {}
   void notify_publication_lost(const ReaderIdSeq&) {}
-  void notify_connection_deleted(const RepoId&) {}
   void remove_associations(const ReaderIdSeq&, bool) {}
-  void _add_ref() {}
-  void _remove_ref() {}
 
-  TransportSendElementAllocator alloc_;
   SendStateDataSampleList list_;
   DataSampleElement dsle_;
   ACE_Message_Block payload_;
+  std::vector<ACE_Message_Block*> old_samples_;
 };
 
-
-enum RtpsFlags { FLAG_E = 1, FLAG_Q = 2, FLAG_D = 4 };
 
 struct TestParticipant: ACE_Event_Handler {
   TestParticipant(ACE_SOCK_Dgram& sock,
@@ -967,7 +973,8 @@ int ACE_TMAIN(int /*argc*/, ACE_TCHAR* /*argv*/[])
 {
   try
   {
-    TheServiceParticipant->get_domain_participant_factory();
+    ::DDS::DomainParticipantFactory_var dpf =
+      TheServiceParticipant->get_domain_participant_factory();
   }
   catch (const CORBA::BAD_PARAM& ex)
   {

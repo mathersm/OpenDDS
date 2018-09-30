@@ -1,13 +1,64 @@
-Version 3.12(?) of OpenDDS
+Version 3.14 of OpenDDS
 
 ##### Additions:
-- TODO: Add your features here
+- Monitor and the ishapes demo now use Qt5
 
 ##### Fixes:
 - TODO: Add your fixes here
 
 ##### Notes:
 - TODO: Add your notes here
+_______________________________________________________________________________
+Version 3.13 of OpenDDS
+
+##### Additions:
+- Includes a beta implementation of the OMG DDS Security 1.1 specification
+- Monitor library can be enabled with -DCPSMonitor 1 or ini file
+- Updated Wireshark dissector now supports Wireshark version 2.x
+- MultiTopic: use Topic's QoS when creating constituent data readers
+
+##### Fixes:
+- Memory management improvements
+- Command-line argument -DCPSRTISerialization takes a 0/1 parameter
+- Further refined fix for RtpsUdpDataLink::remove_sample locking
+- Improved Java bindings build process when using GNU Make
+- RTPS interoperability fixes from testing at OMG conferences
+- OpenDDS can be completely shut down and restarted within a process
+- Improved code generation for IDL unions, including in Javascript/V8
+- Fix for in-process messaging in FACE TSS (PR #819)
+- Fix for ReadCondition leak in OpenDDS::FaceTSS::receive_message (PR #832)
+- TCP reconnect enhancements
+- Removed unused sequence number tracking in DataReaderImpl
+- Fixed a memory leak in content filtering on the subscriber side
+- rtps_udp transport: improved handling of socket errors
+- RTPS discovery: avoid skipping sequence numbers in SEDP
+- InfoRepo: improved persistence with Built-in Topics
+
+##### Notes:
+- The contrib directory, which contained unmaintained code, was removed
+
+_______________________________________________________________________________
+Version 3.12 of OpenDDS
+
+##### Fixes:
+- RtpsUdpDataLink::remove_sample locking
+- track latency only when needed for LatencyBudget QoS or statistics
+- corrected counters for sample rejected/lost liveliness lost total_count_change
+- get_key_value() corrected return value for errors
+- setting DCPSBitTransportPort without DCPSBitTransportIPAddress had no effect
+- writer side association wasn't removed after the the reader had unsubscribed
+- memory leaks
+- issue with unregistered instances when deleting DataWriter
+- problem with multiple transport instances in a single transport config
+- EntityFactory QoS didn't enable child objects when the factory was enabled
+
+##### Notes:
+- configure supports ACE+TAO from DOCGroup repository as an option
+- configure improvements for using external ACE+TAO, cross-compiling on Windows
+- coverity fixes
+- improved Bench performance test
+- Docker Hub now has an OpenDDS docker image
+
 _______________________________________________________________________________
 Version 3.11 of OpenDDS
 

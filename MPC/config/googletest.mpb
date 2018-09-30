@@ -1,0 +1,15 @@
+project {
+  expand(GTEST_ROOT) {
+    $GTEST_ROOT
+    $(DDS_ROOT)/tests/googletest/build/install
+  }
+  includes += $(GTEST_ROOT)/include
+  libpaths += $(GTEST_ROOT)/lib
+
+  lit_libs += gtest
+
+  specific (prop:microsoft) {
+    macros += _SILENCE_TR1_NAMESPACE_DEPRECATION_WARNING
+  }
+
+}

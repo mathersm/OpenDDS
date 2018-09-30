@@ -18,14 +18,14 @@ DataSampleElement*
 DataSampleElement::get_next_send_sample() const
 {
   return next_send_sample_;
-};
+}
 
 ACE_INLINE
 void
 DataSampleElement::set_next_send_sample(DataSampleElement* next_send_sample)
 {
   this->next_send_sample_ = next_send_sample;
-};
+}
 
 ACE_INLINE
 const DataSampleHeader&
@@ -41,25 +41,26 @@ DataSampleElement::get_header()
   return const_cast<DataSampleHeader&>(static_cast<const DataSampleElement &>(*this).get_header());
 }
 
+
 ACE_INLINE
 DataSample*
 DataSampleElement::get_sample() const
 {
-  return sample_;
+  return sample_.get();
 }
 
 ACE_INLINE
 DataSample*
 DataSampleElement::get_sample()
 {
-  return sample_;
+  return sample_.get();
 }
 
 ACE_INLINE
 void
-DataSampleElement::set_sample(DataSample* sample)
+DataSampleElement::set_sample(Message_Block_Ptr sample)
 {
-  this->sample_ = sample;
+  this->sample_.reset(sample.release());
 }
 
 ACE_INLINE
@@ -118,20 +119,6 @@ DataSampleElement::get_send_listener()
   return send_listener_;
 }
 
-
-ACE_INLINE
-TransportSendElementAllocator*
-DataSampleElement::get_transport_send_element_allocator() const
-{
-  return transport_send_element_allocator_;
-}
-
-ACE_INLINE
-TransportCustomizedElementAllocator*
-DataSampleElement::get_transport_customized_element_allocator() const
-{
-  return transport_customized_element_allocator_;
-}
 
 ACE_INLINE
 DataSampleElement::DataLinkIdTypeGUIDMap&

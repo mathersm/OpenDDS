@@ -121,10 +121,6 @@ RecorderImpl::cleanup()
 
   this->remove_all_associations();
 
-  if (topic_servant_) {
-    topic_servant_->remove_entity_ref();
-    topic_servant_->_remove_ref();
-  }
   {
     ACE_READ_GUARD_RETURN(ACE_RW_Thread_Mutex,
                    read_guard,
@@ -160,18 +156,13 @@ void RecorderImpl::init(
   topic_desc_ = DDS::TopicDescription::_duplicate(a_topic_desc);
   if (TopicImpl* a_topic = dynamic_cast<TopicImpl*>(a_topic_desc)) {
     topic_servant_ = a_topic;
-    topic_servant_->_add_ref();
-
-    topic_servant_->add_entity_ref();
   }
 
   CORBA::String_var topic_name = a_topic_desc->get_name();
 
 #if !defined (DDS_HAS_MINIMUM_BIT)
-  is_bit_ = ACE_OS::strcmp(topic_name.in(), BUILT_IN_PARTICIPANT_TOPIC) == 0
-            || ACE_OS::strcmp(topic_name.in(), BUILT_IN_TOPIC_TOPIC) == 0
-            || ACE_OS::strcmp(topic_name.in(), BUILT_IN_SUBSCRIPTION_TOPIC) == 0
-            || ACE_OS::strcmp(topic_name.in(), BUILT_IN_PUBLICATION_TOPIC) == 0;
+  CORBA::String_var type_name = a_topic_desc->get_type_name();
+  is_bit_ = topicIsBIT(topic_name.in(), type_name);
 #endif   // !defined (DDS_HAS_MINIMUM_BIT)
 
   qos_ = qos;
@@ -242,7 +233,7 @@ void RecorderImpl::data_received(const ReceivedDataSample& sample)
                           sample.header_.source_timestamp_nanosec_,
                           sample.header_.publication_id_,
                           sample.header_.byte_order_,
-                          sample.sample_);
+                          sample.sample_.get());
 
   if (listener_.in()) {
     listener_->on_sample_data_received(this, rawSample);
@@ -268,12 +259,6 @@ void RecorderImpl::notify_subscription_lost(const WriterIdSeq&)
 {
 
 }
-
-void RecorderImpl::notify_connection_deleted(const RepoId&)
-{
-
-}
-
 
 
 void
@@ -987,7 +972,6 @@ RecorderImpl::enable()
                  ACE_TEXT("(%P|%t) ERROR: RecorderImpl::enable, ")
                  ACE_TEXT("Transport Exception.\n")));
       return DDS::RETCODE_ERROR;
-
     }
 
     const TransportLocatorSeq& trans_conf_info = this->connection_info();
@@ -995,7 +979,6 @@ RecorderImpl::enable()
     CORBA::String_var filterClassName = "";
     CORBA::String_var filterExpression = "";
     DDS::StringSeq exprParams;
-
 
     Discovery_rch disco =
       TheServiceParticipant->get_discovery(this->domain_id_);
@@ -1023,15 +1006,7 @@ RecorderImpl::enable()
     }
   }
 
-  if (topic_servant_) {
-    const CORBA::String_var name = topic_servant_->get_name();
-    DDS::ReturnCode_t return_value = DDS::RETCODE_OK;
-    //   this->participant_servant_->recorder_enabled(name.in(), this);
-
-    return return_value;
-  } else {
-    return DDS::RETCODE_OK;
-  }
+  return DDS::RETCODE_OK;
 }
 
 DDS::InstanceHandle_t
@@ -1063,24 +1038,20 @@ DDS::ReturnCode_t
 RecorderImpl::repoid_to_bit_key(const DCPS::RepoId&     id,
                                 DDS::BuiltinTopicKey_t& key)
 {
-  DDS::InstanceHandle_t publication_handle = this->participant_servant_->id_to_handle(id);
+  DDS::InstanceHandle_t const publication_handle = this->participant_servant_->id_to_handle(id);
 
   ACE_GUARD_RETURN(ACE_Recursive_Thread_Mutex,
                    guard,
                    this->publication_handle_lock_,
                    DDS::RETCODE_ERROR);
 
-  BIT_Helper_1 < DDS::PublicationBuiltinTopicDataDataReader,
-                 DDS::PublicationBuiltinTopicDataDataReader_var,
-                 DDS::PublicationBuiltinTopicDataSeq > hh;
-
   DDS::PublicationBuiltinTopicDataSeq data;
 
-  DDS::ReturnCode_t ret
-    = hh.instance_handle_to_bit_data(participant_servant_,
-                                     BUILT_IN_PUBLICATION_TOPIC,
-                                     publication_handle,
-                                     data);
+  DDS::ReturnCode_t const ret = instance_handle_to_bit_data<DDS::PublicationBuiltinTopicDataDataReader_var>(
+                            participant_servant_,
+                            BUILT_IN_PUBLICATION_TOPIC,
+                            publication_handle,
+                            data);
 
   if (ret == DDS::RETCODE_OK) {
     key = data[0].key;

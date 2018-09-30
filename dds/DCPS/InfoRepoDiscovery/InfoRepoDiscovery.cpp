@@ -380,6 +380,15 @@ InfoRepoDiscovery::init_bit(DomainParticipantImpl* participant)
                                            DDS::DataReaderListener::_nil(),
                                            OpenDDS::DCPS::DEFAULT_STATUS_MASK);
 
+    const DDS::ReturnCode_t ret = bit_subscriber->enable();
+    if (ret != DDS::RETCODE_OK) {
+      if (DCPS_debug_level) {
+        ACE_DEBUG((LM_INFO, ACE_TEXT("(%P|%t) InfoRepoDiscovery::init_bit")
+                   ACE_TEXT(" - Error %d enabling subscriber\n"), ret));
+      }
+      return 0;
+    }
+
   } catch (const CORBA::Exception&) {
     ACE_ERROR((LM_ERROR, "(%P|%t) InfoRepoDiscovery::init_bit, "
                          "exception during DataReader initialization\n"));
@@ -434,6 +443,12 @@ InfoRepoDiscovery::attach_participant(DDS::DomainId_t domainId,
   }
 }
 
+OpenDDS::DCPS::RepoId
+InfoRepoDiscovery::generate_participant_guid()
+{
+  return GUID_UNKNOWN;
+}
+
 DCPS::AddDomainStatus
 InfoRepoDiscovery::add_domain_participant(DDS::DomainId_t domainId,
                                           const DDS::DomainParticipantQos& qos)
@@ -449,6 +464,21 @@ InfoRepoDiscovery::add_domain_participant(DDS::DomainId_t domainId,
   const DCPS::AddDomainStatus ads = {OpenDDS::DCPS::GUID_UNKNOWN, false /*federated*/};
   return ads;
 }
+
+#if defined(OPENDDS_SECURITY)
+DCPS::AddDomainStatus
+InfoRepoDiscovery::add_domain_participant_secure(
+  DDS::DomainId_t /*domain*/,
+  const DDS::DomainParticipantQos& /*qos*/,
+  const OpenDDS::DCPS::RepoId& /*guid*/,
+  DDS::Security::IdentityHandle /*id*/,
+  DDS::Security::PermissionsHandle /*perm*/,
+  DDS::Security::ParticipantCryptoHandle /*part_crypto*/)
+{
+  const DCPS::AddDomainStatus ads = {OpenDDS::DCPS::GUID_UNKNOWN, false /*federated*/};
+  return ads;
+}
+#endif
 
 bool
 InfoRepoDiscovery::remove_domain_participant(DDS::DomainId_t domainId,
@@ -574,7 +604,7 @@ InfoRepoDiscovery::add_publication(DDS::DomainId_t domainId,
   try {
     DCPS::DataWriterRemoteImpl* writer_remote_impl = 0;
     ACE_NEW_RETURN(writer_remote_impl,
-                   DataWriterRemoteImpl(publication),
+                   DataWriterRemoteImpl(*publication),
                    DCPS::GUID_UNKNOWN);
 
     //this is taking ownership of the DataWriterRemoteImpl (server side) allocated above
@@ -669,7 +699,7 @@ InfoRepoDiscovery::add_subscription(DDS::DomainId_t domainId,
   try {
     DCPS::DataReaderRemoteImpl* reader_remote_impl = 0;
     ACE_NEW_RETURN(reader_remote_impl,
-                   DataReaderRemoteImpl(subscription),
+                   DataReaderRemoteImpl(*subscription),
                    DCPS::GUID_UNKNOWN);
 
     //this is taking ownership of the DataReaderRemoteImpl (server side) allocated above
@@ -786,10 +816,16 @@ InfoRepoDiscovery::removeDataReaderRemote(const RepoId& subscriptionId)
     return;
   }
 
-  DataReaderRemoteImpl* impl =
-    remote_reference_to_servant<DataReaderRemoteImpl>(drr->second.in(), orb_);
-  impl->detach_parent();
-  deactivate_remote_object(drr->second.in(), orb_);
+  try {
+    DataReaderRemoteImpl* impl =
+      remote_reference_to_servant<DataReaderRemoteImpl>(drr->second.in(), orb_);
+    impl->detach_parent();
+    deactivate_remote_object(drr->second.in(), orb_);
+  }
+  catch (::CORBA::BAD_INV_ORDER&){
+    // The orb may throw ::CORBA::BAD_INV_ORDER when is has been shutdown.
+    // Ignore it anyway.
+  }
 
   dataReaderMap_.erase(drr);
 }
@@ -805,10 +841,16 @@ InfoRepoDiscovery::removeDataWriterRemote(const RepoId& publicationId)
     return;
   }
 
-  DataWriterRemoteImpl* impl =
-    remote_reference_to_servant<DataWriterRemoteImpl>(dwr->second.in(), orb_);
-  impl->detach_parent();
-  deactivate_remote_object(dwr->second.in(), orb_);
+  try {
+    DataWriterRemoteImpl* impl =
+      remote_reference_to_servant<DataWriterRemoteImpl>(dwr->second.in(), orb_);
+    impl->detach_parent();
+    deactivate_remote_object(dwr->second.in(), orb_);
+  }
+  catch (::CORBA::BAD_INV_ORDER&){
+    // The orb may throw ::CORBA::BAD_INV_ORDER when is has been shutdown.
+    // Ignore it anyway.
+  }
 
   dataWriterMap_.erase(dwr);
 }

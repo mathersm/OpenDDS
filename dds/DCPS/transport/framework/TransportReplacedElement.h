@@ -10,6 +10,7 @@
 
 #include "dds/DCPS/dcps_export.h"
 #include "TransportQueueElement.h"
+#include "dds/DCPS/Message_Block_Ptr.h"
 #include "ace/Synch_Traits.h"
 
 OPENDDS_BEGIN_VERSIONED_NAMESPACE_DECL
@@ -17,18 +18,11 @@ OPENDDS_BEGIN_VERSIONED_NAMESPACE_DECL
 namespace OpenDDS {
 namespace DCPS {
 
-class TransportReplacedElement;
-
-typedef Cached_Allocator_With_Overflow<TransportReplacedElement,
-                                       ACE_SYNCH_NULL_MUTEX>
-  TransportReplacedElementAllocator;
-
 class OpenDDS_Dcps_Export TransportReplacedElement
   : public TransportQueueElement {
 public:
 
   TransportReplacedElement(TransportQueueElement* orig_elem,
-                           TransportReplacedElementAllocator* allocator = 0,
                            MessageBlockAllocator* mb_allocator = 0,
                            DataBlockAllocator* db_allocator = 0);
   virtual ~TransportReplacedElement();
@@ -48,9 +42,6 @@ protected:
   virtual void release_element(bool dropped_by_transport);
 
 private:
-
-  /// Reference to TransportReplacedElement allocator.
-  TransportReplacedElementAllocator* allocator_;
   /// Cached allocator for DataSampleHeader message block
   MessageBlockAllocator* mb_allocator_;
   /// Cached allocator for DataSampleHeader data block
@@ -60,7 +51,7 @@ private:
   RepoId publisher_id_;
 
   /// A deep-copy of the msg() from the original TransportQueueElement.
-  ACE_Message_Block* msg_;
+  Message_Block_Ptr msg_;
 };
 
 } // namespace DCPS

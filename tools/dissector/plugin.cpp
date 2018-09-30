@@ -7,7 +7,7 @@
 
 extern "C" {
 
-#include "config.h"
+#include "ws_config.h"
 
 #include <glib.h>
 #include <gmodule.h>
@@ -24,12 +24,25 @@ extern "C" {
 #include <fstream>
 
 #ifndef ACE_AS_STATIC_LIBS
-extern "C"
-dissector_Export const gchar version[] = DDS_VERSION;
+
+/*
+ * In Wireshark 2.5 (the future version 2.6), the method of reporting plugins
+ * to Wireshark changed.
+ */
+#if WIRESHARK_VERSION >= WIRESHARK_VERSION_NUMBER(2, 5, 0)
+  extern "C" dissector_Export const gchar plugin_version[] = DDS_VERSION;
+  extern "C" dissector_Export const gchar plugin_release[] = VERSION_RELEASE;
+#else
+  extern "C" dissector_Export const gchar version[] = DDS_VERSION;
+#endif
 
 extern "C"
 dissector_Export void
+#if WIRESHARK_VERSION >= WIRESHARK_VERSION_NUMBER(2, 5, 0)
+register_opendds()
+#else
 plugin_register()
+#endif
 {
   if (ACE_OS::getenv("OPENDDS_DISSECTOR_LOG")) {
     ACE_LOG_MSG->msg_ostream(new std::ofstream("OpenDDS_wireshark.log"), 1);
@@ -42,11 +55,24 @@ plugin_register()
 
 extern "C"
 dissector_Export void
+#if WIRESHARK_VERSION >= WIRESHARK_VERSION_NUMBER(2, 5, 0)
+reg_handoff_opendds()
+#else
 plugin_reg_handoff()
+#endif
 {
   OpenDDS::DCPS::DDS_Dissector::instance().register_handoff ();
   OpenDDS::DCPS::InfoRepo_Dissector::instance().register_handoff ();
   OpenDDS::DCPS::DataWriterRemote_Dissector::instance().register_handoff ();
 }
+
+#if WIRESHARK_VERSION >= WIRESHARK_VERSION_NUMBER(2, 5, 0)
+extern "C" dissector_Export void plugin_register() {
+  static proto_plugin opendds_plugin;
+  opendds_plugin.register_protoinfo = register_opendds;
+  opendds_plugin.register_handoff = reg_handoff_opendds;
+  proto_register_plugin(&opendds_plugin);
+}
+#endif
 
 #endif  /* ACE_AS_STATIC_LIBS */

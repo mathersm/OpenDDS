@@ -9,6 +9,7 @@
 #define OPENDDS_DCPS_TRANSPORTRETAINEDELEMENT_H
 
 #include "dds/DCPS/dcps_export.h"
+#include "dds/DCPS/Message_Block_Ptr.h"
 #include "TransportQueueElement.h"
 #include "ace/Synch_Traits.h"
 
@@ -19,10 +20,6 @@ namespace DCPS {
 
 class TransportRetainedElement;
 
-typedef Cached_Allocator_With_Overflow<TransportRetainedElement,
-                                       ACE_SYNCH_NULL_MUTEX>
-  TransportRetainedElementAllocator;
-
 class OpenDDS_Dcps_Export TransportRetainedElement
   : public TransportQueueElement {
 public:
@@ -30,7 +27,6 @@ public:
   TransportRetainedElement(
     const ACE_Message_Block*           message,
     const RepoId&                      pubId,
-    TransportRetainedElementAllocator* allocator = 0,
     MessageBlockAllocator*             mb_allocator_ = 0,
     DataBlockAllocator*                db_allocator_ = 0
   );
@@ -56,13 +52,11 @@ protected:
 
 private:
   /// Sample data, if any.
-  ACE_Message_Block* msg_;
+  Message_Block_Ptr msg_;
 
   /// Originating publication Id, if any.
   RepoId publication_id_;
 
-  /// Reference to TransportRetainedElement allocator.
-  TransportRetainedElementAllocator* allocator_;
   /// Cached allocator for DataSampleHeader message block
   MessageBlockAllocator*             mb_allocator_;
   /// Cached allocator for DataSampleHeader data block

@@ -12,6 +12,7 @@
 #include "PacketRemoveVisitor.h"
 #include "RemoveAllVisitor.h"
 
+#include "dds/DCPS/DataSampleHeader.h"
 #include "dds/DCPS/DisjointSequence.h"
 
 #include "ace/Log_Msg.h"
@@ -48,10 +49,8 @@ SingleSendBuffer::SingleSendBuffer(size_t capacity,
                                    size_t max_samples_per_packet)
   : TransportSendBuffer(capacity),
     n_chunks_(capacity * max_samples_per_packet),
-    retained_allocator_(this->n_chunks_),
     retained_mb_allocator_(this->n_chunks_ * 2),
     retained_db_allocator_(this->n_chunks_ * 2),
-    replaced_allocator_(this->n_chunks_),
     replaced_mb_allocator_(this->n_chunks_ * 2),
     replaced_db_allocator_(this->n_chunks_ * 2)
 {
@@ -189,7 +188,6 @@ SingleSendBuffer::retain_buffer(const RepoId& pub_id, BufferType& buffer)
   PacketRemoveVisitor visitor(match,
                               buffer.second,
                               buffer.second,
-                              this->replaced_allocator_,
                               this->replaced_mb_allocator_,
                               this->replaced_db_allocator_);
 
@@ -215,6 +213,16 @@ SingleSendBuffer::insert(SequenceNumber sequence,
       buffer.first, buffer.second
     ));
   }
+
+  if (queue && queue->size() == 1) {
+    const TransportQueueElement* elt = queue->peek();
+    const RepoId subId = elt->subscription_id();
+    const ACE_Message_Block* msg = elt->msg();
+    if (msg && subId != GUID_UNKNOWN &&
+        !DataSampleHeader::test_flag(HISTORIC_SAMPLE_FLAG, msg)) {
+      destinations_[sequence] = subId;
+    }
+  }
 }
 
 void
@@ -224,10 +232,9 @@ SingleSendBuffer::insert_buffer(BufferType& buffer,
 {
   // Copy sample's TransportQueueElements:
   TransportSendStrategy::QueueType*& elems = buffer.first;
-  ACE_NEW(elems, TransportSendStrategy::QueueType(queue->size(), 1));
+  ACE_NEW(elems, TransportSendStrategy::QueueType());
 
   CopyChainVisitor visitor(*elems,
-                           &this->retained_allocator_,
                            &this->retained_mb_allocator_,
                            &this->retained_db_allocator_);
   queue->accept_visitor(visitor);
@@ -286,6 +293,7 @@ SingleSendBuffer::check_capacity()
       ));
     }
 
+    destinations_.erase(it->first);
     release(it);
   }
 }
@@ -300,15 +308,28 @@ SingleSendBuffer::resend(const SequenceRange& range, DisjointSequence* gaps)
 bool
 SingleSendBuffer::resend_i(const SequenceRange& range, DisjointSequence* gaps)
 {
+  return resend_i(range, gaps, GUID_UNKNOWN);
+}
+
+bool
+SingleSendBuffer::resend_i(const SequenceRange& range, DisjointSequence* gaps,
+                           const RepoId& destination)
+{
   //Special case, nak to make sure it has all history
   const SequenceNumber lowForAllResent = range.first == SequenceNumber() ? low() : range.first;
+  const bool has_dest = destination != GUID_UNKNOWN;
 
   for (SequenceNumber sequence(range.first);
        sequence <= range.second; ++sequence) {
     // Re-send requested sample if still buffered; missing samples
     // will be scored against the given DisjointSequence:
-    BufferMap::iterator it(this->buffers_.find(sequence));
-    if (it == this->buffers_.end()) {
+    BufferMap::iterator it(buffers_.find(sequence));
+    DestinationMap::iterator dest_data;
+    if (has_dest) {
+      dest_data = destinations_.find(sequence);
+    }
+    if (it == buffers_.end() || (has_dest && (dest_data == destinations_.end() ||
+                                              dest_data->second != destination))) {
       if (gaps) {
         gaps->insert(sequence);
       }

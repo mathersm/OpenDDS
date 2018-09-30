@@ -42,18 +42,17 @@ typedef RcHandle<MulticastTransport> MulticastTransport_rch;
 class OpenDDS_Multicast_Export MulticastDataLink
   : public DataLink {
 public:
-  MulticastDataLink(const MulticastTransport_rch& transport,
+  MulticastDataLink(MulticastTransport& transport,
                     const MulticastSessionFactory_rch& session_factory,
                     MulticastPeer local_peer,
+                    MulticastInst& config,
+                    TransportReactorTask* reactor_task,
                     bool is_active);
   virtual ~MulticastDataLink();
 
-  MulticastTransport* transport();
+  MulticastTransport& transport();
 
   MulticastPeer local_peer() const;
-
-  void configure(MulticastInst* config,
-                 TransportReactorTask* reactor_task);
 
   MulticastSendStrategy* send_strategy();
 
@@ -61,7 +60,7 @@ public:
 
   SingleSendBuffer* send_buffer();
 
-  MulticastInst* config();
+  MulticastInst& config();
 
   TransportReactorTask* reactor_task();
   ACE_Reactor* get_reactor();
@@ -86,14 +85,12 @@ private:
 
   MulticastPeer local_peer_;
 
-  MulticastInst* config_;
-
   TransportReactorTask* reactor_task_;
 
   MulticastSendStrategy_rch send_strategy_;
   MulticastReceiveStrategy_rch recv_strategy_;
 
-  SingleSendBuffer* send_buffer_;
+  unique_ptr<SingleSendBuffer> send_buffer_;
 
   ACE_SOCK_Dgram_Mcast socket_;
 
@@ -104,7 +101,7 @@ private:
 
   virtual void stop_i();
 
-  void syn_received_no_session(MulticastPeer source, ACE_Message_Block* data,
+  void syn_received_no_session(MulticastPeer source, const Message_Block_Ptr& data,
                                bool swap_bytes);
 
   void release_remote_i(const RepoId& remote);

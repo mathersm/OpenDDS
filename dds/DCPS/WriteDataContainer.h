@@ -16,6 +16,7 @@
 #include "DisjointSequence.h"
 #include "PoolAllocator.h"
 #include "PoolAllocationBase.h"
+#include "Message_Block_Ptr.h"
 
 #include "ace/Synch_Traits.h"
 #include "ace/Condition_T.h"
@@ -192,7 +193,7 @@ public:
    */
   DDS::ReturnCode_t
   register_instance(DDS::InstanceHandle_t&  instance_handle,
-                    DataSample*&            registered_sample);
+                    Message_Block_Ptr&      registered_sample);
 
   /**
    * Remove the provided instance from the instances_ list.
@@ -205,7 +206,7 @@ public:
    */
   DDS::ReturnCode_t unregister(
     DDS::InstanceHandle_t handle,
-    DataSample*& registered_sample,
+    Message_Block_Ptr&    registered_sample,
     bool dup_registered_sample = true);
 
   /**
@@ -218,7 +219,7 @@ public:
    */
   DDS::ReturnCode_t dispose(
     DDS::InstanceHandle_t handle,
-    DataSample*& registered_sample,
+    Message_Block_Ptr& registered_sample,
     bool dup_registered_sample = true);
 
   /**
@@ -499,14 +500,6 @@ private:
   /// The cached allocator to allocate DataSampleElement
   /// objects.
   DataSampleElementAllocator sample_list_element_allocator_;
-
-  /// The allocator for TransportSendElement.
-  /// The TransportSendElement allocator is put here because it
-  /// needs the number of chunks information that WriteDataContainer
-  /// has.
-  TransportSendElementAllocator  transport_send_element_allocator_;
-
-  TransportCustomizedElementAllocator transport_customized_element_allocator_;
 
   /// The flag indicates the datawriter will be destroyed.
   bool shutdown_;

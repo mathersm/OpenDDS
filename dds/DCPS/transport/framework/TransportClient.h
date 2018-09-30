@@ -50,6 +50,7 @@ class SendStateDataSampleListIterator;
  * currently active communication channels to peers.
  */
 class OpenDDS_Dcps_Export TransportClient
+  : public virtual RcObject
 {
 public:
   // Used by TransportImpl to complete associate() processing:
@@ -57,11 +58,6 @@ public:
 
   // values for flags parameter of transport_assoc_done():
   enum { ASSOC_OK = 1, ASSOC_ACTIVE = 2 };
-
-  virtual void _add_ref() {}
-  virtual void _remove_ref() {}
-
-protected:
   TransportClient();
   virtual ~TransportClient();
 
@@ -109,29 +105,26 @@ protected:
 
   bool send_response(const RepoId& peer,
                      const DataSampleHeader& header,
-                     ACE_Message_Block* payload); // [DR]
+                     Message_Block_Ptr payload); // [DR]
 
   void send(SendStateDataSampleList send_list, ACE_UINT64 transaction_id = 0);
 
   SendControlStatus send_w_control(SendStateDataSampleList send_list,
                                    const DataSampleHeader& header,
-                                   ACE_Message_Block* msg,
+                                   Message_Block_Ptr msg,
                                    const RepoId& destination);
 
   SendControlStatus send_control(const DataSampleHeader& header,
-                                 ACE_Message_Block* msg);
+                                 Message_Block_Ptr msg);
 
   SendControlStatus send_control_to(const DataSampleHeader& header,
-                                    ACE_Message_Block* msg,
+                                    Message_Block_Ptr msg,
                                     const RepoId& destination);
 
   bool remove_sample(const DataSampleElement* sample);
   bool remove_all_msgs();
 
   virtual void add_link(const DataLink_rch& link, const RepoId& peer);
-
-  void on_notification_of_connection_deletion(const RepoId& peerId);
-
 
 private:
 
@@ -142,9 +135,12 @@ private:
   virtual Priority get_priority_value(const AssociationData& data) const = 0;
   virtual void transport_assoc_done(int /*flags*/, const RepoId& /*remote*/) {}
 
-  // transport_detached() is called from TransportImpl when it shuts down
-  friend class TransportImpl;
-  void transport_detached(TransportImpl* which);
+#if defined(OPENDDS_SECURITY)
+  virtual DDS::Security::ParticipantCryptoHandle get_crypto_handle() const
+  {
+    return DDS::HANDLE_NIL;
+  }
+#endif
 
   // helpers
   typedef ACE_Guard<ACE_Thread_Mutex> Guard;
@@ -158,7 +154,7 @@ private:
   //allows PendingAssoc to temporarily release lock_ to allow
   //TransportImpl to access Reactor if needed
   bool initiate_connect_i(TransportImpl::AcceptConnectResult& result,
-                          const TransportImpl_rch impl,
+                          TransportImpl* impl,
                           const TransportImpl::RemoteTransport& remote,
                           const TransportImpl::ConnectionAttribs& attribs_,
                           Guard& guard);
@@ -170,9 +166,9 @@ private:
   friend class ::DDS_TEST;
 
   typedef OPENDDS_MAP_CMP(RepoId, DataLink_rch, GUID_tKeyLessThan) DataLinkIndex;
-  typedef OPENDDS_VECTOR(TransportImpl_rch) ImplsType;
+  typedef OPENDDS_VECTOR(TransportImpl*) ImplsType;
 
-  struct PendingAssoc : RcEventHandler, PoolAllocationBase {
+  struct PendingAssoc : RcEventHandler {
     bool active_, removed_;
     ImplsType impls_;
     CORBA::ULong blob_index_;
@@ -271,7 +267,6 @@ private:
   ImplsType impls_;
   PendingMap pending_;
   DataLinkSet links_;
-  DataLinkIndex links_waiting_for_on_deleted_callback_;
 
   /// These are the links being used during the call to send(). This is made a member of the
   /// class to minimize allocation/deallocations of the data link set.
@@ -301,7 +296,7 @@ private:
 
   TransportLocatorSeq conn_info_;
 
-  //Seems to protect accesses to impls_, pending_, links_, data_link_index_
+  /// Seems to protect accesses to impls_, pending_, links_, data_link_index_
   ACE_Thread_Mutex lock_;
 
   typedef ACE_Reverse_Lock<ACE_Thread_Mutex> Reverse_Lock_t;

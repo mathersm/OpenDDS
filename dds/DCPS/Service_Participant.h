@@ -17,7 +17,7 @@
 #include "dds/DCPS/Discovery.h"
 #include "dds/DCPS/PoolAllocator.h"
 #include "dds/DCPS/DomainParticipantFactoryImpl.h"
-#include "dds/DCPS/scoped_ptr.h"
+#include "dds/DCPS/unique_ptr.h"
 
 
 #include "ace/Task.h"
@@ -133,6 +133,7 @@ public:
   DDS::EntityFactoryQosPolicy       initial_EntityFactoryQosPolicy() const;
   DDS::WriterDataLifecycleQosPolicy initial_WriterDataLifecycleQosPolicy() const;
   DDS::ReaderDataLifecycleQosPolicy initial_ReaderDataLifecycleQosPolicy() const;
+  DDS::PropertyQosPolicy            initial_PropertyQosPolicy() const;
 
   DDS::DomainParticipantFactoryQos  initial_DomainParticipantFactoryQos() const;
   DDS::DomainParticipantQos         initial_DomainParticipantQos() const;
@@ -287,6 +288,16 @@ public:
   void bit_lookup_duration_msec(int msec);
   //@}
 
+#if defined(OPENDDS_SECURITY)
+  bool get_security() {
+    return security_enabled_;
+  }
+
+  void set_security(bool b) {
+    security_enabled_ = b;
+  }
+#endif
+
   bool get_BIT() {
     return bit_enabled_;
   }
@@ -422,13 +433,14 @@ private:
   int load_discovery_configuration(ACE_Configuration_Heap& cf,
                                    const ACE_TCHAR* section_name);
 
-  OPENDDS_MAP(OPENDDS_STRING, Discovery::Config*) discovery_types_;
+  typedef OPENDDS_MAP(OPENDDS_STRING, container_supported_unique_ptr<Discovery::Config>) DiscoveryTypes;
+  DiscoveryTypes discovery_types_;
 
 #ifndef OPENDDS_SAFETY_PROFILE
   ACE_ARGV ORB_argv_;
 #endif
 
-  ACE_Reactor* reactor_; //TODO: integrate with threadpool
+  unique_ptr<ACE_Reactor> reactor_; //TODO: integrate with threadpool
   ACE_thread_t reactor_owner_;
 
   struct ReactorTask : ACE_Task_Base {
@@ -441,8 +453,7 @@ private:
     ACE_Barrier barrier_;
   } reactor_task_;
 
-  DomainParticipantFactoryImpl* dp_factory_servant_;
-  DDS::DomainParticipantFactory_var dp_factory_;
+  RcHandle<DomainParticipantFactoryImpl> dp_factory_servant_;
 
   /// The RepoKey to Discovery object mapping
   RepoKeyDiscoveryMap discoveryMap_;
@@ -481,6 +492,7 @@ private:
   DDS::EntityFactoryQosPolicy         initial_EntityFactoryQosPolicy_;
   DDS::WriterDataLifecycleQosPolicy   initial_WriterDataLifecycleQosPolicy_;
   DDS::ReaderDataLifecycleQosPolicy   initial_ReaderDataLifecycleQosPolicy_;
+  DDS::PropertyQosPolicy              initial_PropertyQosPolicy_;
 
   DDS::DomainParticipantQos           initial_DomainParticipantQos_;
   DDS::TopicQos                       initial_TopicQos_;
@@ -510,6 +522,10 @@ private:
 
   bool bit_enabled_;
 
+#if defined(OPENDDS_SECURITY)
+  bool security_enabled_;
+#endif
+
   /// The timeout for lookup data from the builtin topic
   /// @c DataReader.
   int bit_lookup_duration_msec_;
@@ -532,7 +548,7 @@ public:
   MonitorFactory* monitor_factory_;
 
   /// Pointer to the monitor object for this object
-  Monitor* monitor_;
+  unique_ptr<Monitor> monitor_;
 
 private:
   /// The FederationRecoveryDuration value in seconds.
@@ -576,10 +592,10 @@ private:
 #ifndef OPENDDS_NO_PERSISTENCE_PROFILE
 
   /// The @c TRANSIENT data durability cache.
-  scoped_ptr<DataDurabilityCache> transient_data_cache_;
+  unique_ptr<DataDurabilityCache> transient_data_cache_;
 
   /// The @c PERSISTENT data durability cache.
-  scoped_ptr<DataDurabilityCache> persistent_data_cache_;
+  unique_ptr<DataDurabilityCache> persistent_data_cache_;
 
   /// The @c PERSISTENT data durability directory.
   ACE_CString persistent_data_dir_;
@@ -592,6 +608,9 @@ private:
 
   /// Enable TAO's Bidirectional GIOP?
   bool bidir_giop_;
+
+  /// Enable Monitor functionality
+  bool monitor_enabled_;
 
   /// Used to track state of service participant
   bool shut_down_;

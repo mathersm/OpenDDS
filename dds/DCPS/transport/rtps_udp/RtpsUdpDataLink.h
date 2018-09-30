@@ -33,6 +33,11 @@
 #include "dds/DCPS/ReactorInterceptor.h"
 #include "dds/DCPS/RcEventHandler.h"
 
+#ifdef OPENDDS_SECURITY
+#include "dds/DdsSecurityCoreC.h"
+#include "dds/DCPS/security/framework/SecurityConfig.h"
+#include "dds/DCPS/security/framework/SecurityConfig_rch.h"
+#endif
 
 class DDS_TEST;
 
@@ -50,14 +55,18 @@ typedef RcHandle<RtpsUdpTransport> RtpsUdpTransport_rch;
 class OpenDDS_Rtps_Udp_Export RtpsUdpDataLink : public DataLink {
 public:
 
-  RtpsUdpDataLink(const RtpsUdpTransport_rch& transport,
+  RtpsUdpDataLink(RtpsUdpTransport& transport,
                   const GuidPrefix_t& local_prefix,
-                  const RtpsUdpInst_rch& config,
+                  const RtpsUdpInst& config,
                   const TransportReactorTask_rch& reactor_task);
 
   bool add_delayed_notification(TransportQueueElement* element);
-  void do_remove_sample(const RepoId& pub_id, const TransportQueueElement::MatchCriteria& criteria);
-  RtpsUdpInst_rch config() const;
+
+  void do_remove_sample(const RepoId& pub_id,
+                        const TransportQueueElement::MatchCriteria& criteria,
+                        ACE_Guard<ACE_Thread_Mutex>& guard);
+
+  RtpsUdpInst& config() const;
 
   ACE_Reactor* get_reactor();
   bool reactor_is_shut_down();
@@ -121,12 +130,28 @@ public:
 
   virtual void pre_stop_i();
 
-  virtual void send_final_acks (const RepoId& readerid);
+  virtual void send_final_acks(const RepoId& readerid);
+
+#ifdef OPENDDS_SECURITY
+  Security::SecurityConfig_rch security_config() const
+  { return security_config_; }
+
+  DDS::Security::ParticipantCryptoHandle local_crypto_handle() const;
+  void local_crypto_handle(DDS::Security::ParticipantCryptoHandle pch);
+
+  DDS::Security::ParticipantCryptoHandle peer_crypto_handle(const RepoId& peer) const;
+  DDS::Security::DatawriterCryptoHandle writer_crypto_handle(const RepoId& writer) const;
+  DDS::Security::DatareaderCryptoHandle reader_crypto_handle(const RepoId& reader) const;
+
+  void populate_security_handles(const RepoId& local_id, const RepoId& remote_id,
+                                 const unsigned char* buffer,
+                                 unsigned int buffer_size);
+#endif
 
 private:
   virtual void stop_i();
   virtual void send_i(TransportQueueElement* element, bool relink = true);
-  RemoveResult remove_sample(const DataSampleElement* sample);
+  RemoveResult remove_sample(const DataSampleElement* sample, void* context);
 
   virtual TransportQueueElement* customize_queue_element(
     TransportQueueElement* element);
@@ -138,18 +163,17 @@ private:
   friend class ::DDS_TEST;
   /// static member used by testing code to force inline qos
   static bool force_inline_qos_;
-  bool requires_inline_qos(const PublicationId& pub_id);
+  bool requires_inline_qos(const GUIDSeq_var & peers);
 
   typedef OPENDDS_MAP_CMP(RepoId, OPENDDS_VECTOR(RepoId),GUID_tKeyLessThan) DestToEntityMap;
   void add_gap_submsg(RTPS::SubmessageSeq& msg,
                       const TransportQueueElement& tqe,
                       const DestToEntityMap& dtem);
 
-  RtpsUdpInst_rch config_;
   TransportReactorTask_rch reactor_task_;
 
-  RtpsUdpSendStrategy_rch send_strategy_;
-  RtpsUdpReceiveStrategy_rch recv_strategy_;
+  RtpsUdpSendStrategy* send_strategy();
+  RtpsUdpReceiveStrategy* receive_strategy();
 
   GuidPrefix_t local_prefix_;
 
@@ -164,8 +188,6 @@ private:
 
   ACE_SOCK_Dgram unicast_socket_;
   ACE_SOCK_Dgram_Mcast multicast_socket_;
-
-  RtpsCustomizedElementAllocator rtps_customized_element_allocator_;
 
   struct MultiSendBuffer : TransportSendBuffer {
 
@@ -341,11 +363,15 @@ private:
     }
   }
 
-
-  // Timers for reliability:
   void send_nack_replies();
+  void send_directed_nack_replies(const RepoId& writerId, RtpsWriter& writer,
+                                  const RepoId& readerId, ReaderInfo& reader);
+  void process_requested_changes(DisjointSequence& requests,
+                                 const RtpsWriter& writer,
+                                 const ReaderInfo& reader);
   void process_acked_by_all_i(ACE_Guard<ACE_Thread_Mutex>& g, const RepoId& pub_id);
   void send_heartbeats();
+  void send_directed_heartbeats(OPENDDS_VECTOR(RTPS::HeartBeatSubmessage)& hbs);
   void check_heartbeats();
   void send_heartbeats_manual(const TransportSendControlElement* tsce);
   void send_heartbeat_replies();
@@ -504,6 +530,19 @@ private:
     HeldData held_data_;
   };
   HeldDataDeliveryHandler held_data_delivery_handler_;
+
+#ifdef OPENDDS_SECURITY
+  Security::SecurityConfig_rch security_config_;
+  DDS::Security::ParticipantCryptoHandle local_crypto_handle_;
+
+  typedef OPENDDS_MAP_CMP(RepoId, DDS::Security::NativeCryptoHandle,
+                          GUID_tKeyLessThan) PeerHandlesMap;
+  PeerHandlesMap peer_crypto_handles_;
+
+  typedef OPENDDS_MAP_CMP(RepoId, DDS::Security::NativeCryptoHandle,
+                          GUID_tKeyLessThan)::const_iterator PeerHandlesCIter;
+#endif
+
 };
 
 } // namespace DCPS

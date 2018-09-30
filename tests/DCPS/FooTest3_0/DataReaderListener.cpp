@@ -28,7 +28,6 @@ DataReaderListenerImpl::~DataReaderListenerImpl()
 }
 
 void DataReaderListenerImpl::on_data_available(DDS::DataReader_ptr reader)
-throw(CORBA::SystemException)
 {
   try {
     Xyz::FooDataReader_var foo_dr =
@@ -44,22 +43,21 @@ throw(CORBA::SystemException)
     Xyz::Foo foo;
     DDS::SampleInfo si;
 
-    DDS::ReturnCode_t status = foo_dr->take_next_sample(foo, si) ;
+    const DDS::ReturnCode_t status = foo_dr->take_next_sample(foo, si) ;
 
     if (status == DDS::RETCODE_OK) {
       ++samples_read_;
+      std::cout << "SampleInfo.valid_data = " << si.valid_data << std::endl;
       std::cout << "SampleInfo.sample_rank = " << si.sample_rank << std::endl;
       std::cout << "SampleInfo.instance_state = " << si.instance_state << std::endl;
 
-      if (si.valid_data) {
-        std::cout << "Foo sample processed" << std::endl;
-      } else if (si.instance_state == DDS::NOT_ALIVE_DISPOSED_INSTANCE_STATE) {
-        ACE_DEBUG((LM_DEBUG, ACE_TEXT("%N:%l: INFO: instance is disposed\n")));
+      if (si.instance_state == DDS::NOT_ALIVE_DISPOSED_INSTANCE_STATE) {
+        ACE_DEBUG((LM_DEBUG, ACE_TEXT("%N:%l: INFO: instance %d is disposed\n"), foo.a_long_value));
         ++samples_disposed_;
-
+      } else if (si.valid_data) {
+        ACE_DEBUG((LM_DEBUG, ACE_TEXT("%N:%l: INFO: Foo sample %d processed\n"), foo.sample_sequence));
       } else if (si.instance_state == DDS::NOT_ALIVE_NO_WRITERS_INSTANCE_STATE) {
         ACE_DEBUG((LM_DEBUG, ACE_TEXT("%N:%l: INFO: instance is unregistered\n")));
-
       } else {
         ACE_ERROR((LM_ERROR,
                    ACE_TEXT("%N:%l: on_data_available()")
@@ -83,7 +81,6 @@ throw(CORBA::SystemException)
 void DataReaderListenerImpl::on_requested_deadline_missed(
   DDS::DataReader_ptr,
   const DDS::RequestedDeadlineMissedStatus &)
-throw(CORBA::SystemException)
 {
   ACE_DEBUG((LM_DEBUG, ACE_TEXT("%N:%l: INFO: on_requested_deadline_missed()\n")));
 }
@@ -91,7 +88,6 @@ throw(CORBA::SystemException)
 void DataReaderListenerImpl::on_requested_incompatible_qos(
   DDS::DataReader_ptr,
   const DDS::RequestedIncompatibleQosStatus &)
-throw(CORBA::SystemException)
 {
   ACE_DEBUG((LM_DEBUG, ACE_TEXT("%N:%l: INFO: on_requested_incompatible_qos()\n")));
 }
@@ -99,7 +95,6 @@ throw(CORBA::SystemException)
 void DataReaderListenerImpl::on_liveliness_changed(
   DDS::DataReader_ptr,
   const DDS::LivelinessChangedStatus &)
-throw(CORBA::SystemException)
 {
   ACE_DEBUG((LM_DEBUG, ACE_TEXT("%N:%l: INFO: on_liveliness_changed()\n")));
 }
@@ -107,7 +102,6 @@ throw(CORBA::SystemException)
 void DataReaderListenerImpl::on_subscription_matched(
   DDS::DataReader_ptr,
   const DDS::SubscriptionMatchedStatus &)
-throw(CORBA::SystemException)
 {
   ACE_DEBUG((LM_DEBUG, ACE_TEXT("%N:%l: INFO: on_subscription_matched()\n")));
 }
@@ -115,7 +109,6 @@ throw(CORBA::SystemException)
 void DataReaderListenerImpl::on_sample_rejected(
   DDS::DataReader_ptr,
   const DDS::SampleRejectedStatus&)
-throw(CORBA::SystemException)
 {
   ACE_DEBUG((LM_DEBUG, ACE_TEXT("%N:%l: INFO: on_sample_rejected()\n")));
 }
@@ -123,7 +116,6 @@ throw(CORBA::SystemException)
 void DataReaderListenerImpl::on_sample_lost(
   DDS::DataReader_ptr,
   const DDS::SampleLostStatus&)
-throw(CORBA::SystemException)
 {
   ACE_DEBUG((LM_DEBUG, ACE_TEXT("%N:%l: INFO: on_sample_lost()\n")));
 }
